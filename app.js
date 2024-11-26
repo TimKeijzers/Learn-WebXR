@@ -35,12 +35,18 @@ class App{
 
 			this.scene.add( this.mesh);
 
+			const controls = new OrbitControls( this.camera,this.renderer.domElement)
+
+
 
 		
         window.addEventListener('resize', this.resize.bind(this) );
 	}	
     
     resize(){
+		this.camera.aspect = window.innerWidth/window.innerHeight
+		this.camera,updateProjectectionMatrix();
+		this.renderer.setSize(window.innerWidth, window.innerHeight );
         
     }
     
