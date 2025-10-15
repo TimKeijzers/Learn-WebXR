@@ -119,7 +119,7 @@ this.model.visible = true;
 // ---- Auto-lift in de viewer: zet voeten op (net boven) y=0 ----
 const box = new THREE.Box3().setFromObject(this.model);
 const height = box.max.y - box.min.y;
-const lift = -box.min.y + 0.05 * height; // 5% marge boven de onderkant
+const lift = -box.min.y + 0.35 * height; // 5% marge boven de onderkant
 this.model.position.set(0, lift, 0);
 // ---------------------------------------------------------------
 
@@ -263,7 +263,7 @@ if (this.model) {
     this.model.visible = true;
     const box = new THREE.Box3().setFromObject(this.model);
     const height = box.max.y - box.min.y;
-    const lift = -box.min.y + 0.05 * height;
+    const lift = -box.min.y + 0.35 * height;
     this.model.position.set(0, lift, 0);
   }
   }
