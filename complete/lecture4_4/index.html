@@ -1,144 +1,57 @@
-import * as THREE from '../../libs/three124/three.module.js';
-import { GLTFLoader } from '../../libs/three124/jsm/GLTFLoader.js';
-import { DRACOLoader } from '../../libs/three124/jsm/DRACOLoader.js';
-
-class App {
-
-  constructor() {
-    this.container = document.createElement('div');
-    document.body.appendChild(this.container);
-
-    this.clock = new THREE.Clock();
-
-    this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 2000);
-    this.camera.position.set(0, 1.5, 3);
-
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0xa0a0a0);
-
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444);
-    hemiLight.position.set(0, 20, 0);
-    this.scene.add(hemiLight);
-
-    const dirLight = new THREE.DirectionalLight(0xffffff);
-    dirLight.position.set(3, 10, 10);
-    this.scene.add(dirLight);
-
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.container.appendChild(this.renderer.domElement);
-
-    this.loadGLTF('knight');
-
-    this.addButtonEvents();
-
-    window.addEventListener('resize', this.onWindowResize.bind(this), false);
-
-    this.animate();
-  }
-
-  loadGLTF(filename){
-    const self = this;
-
-    const loader = new GLTFLoader();
-
-    const dracoLoader = new DRACOLoader();
-    dracoLoader.setDecoderPath( '../../libs/three124/jsm/draco/' );
-    loader.setDRACOLoader(dracoLoader);
-
-    loader.load( `${filename}.glb`, ( gltf ) => {
-      self.animations = {};
-
-      // Map Dutch button labels → actual clip names in the GLB
-      self.nameMap = {
-        'staan': 'Idle',
-        'dansen': 'Dance',
-        'doodgaan': 'Die',
-        'lopen': 'Walk'
-      };
-
-      gltf.animations.forEach( (anim)=>{
-        self.animations[anim.name] = anim;
-      });
-
-      console.log('GLB animations found:', gltf.animations.map(a => a.name));
-
-      self.knight = gltf.scene;
-
-      self.scene.add(self.knight);
-
-      self.mixer = new THREE.AnimationMixer(self.knight);
-
-      const scale = 0.01;
-      self.knight.scale.set(scale, scale, scale);
-
-      const defaultLabel = 'staan';
-      const defaultName = self.animations[defaultLabel]
-        ? defaultLabel
-        : (self.nameMap && self.animations[self.nameMap[defaultLabel]]
-            ? self.nameMap[defaultLabel]
-            : Object.keys(self.animations)[0]);
-      self.action = defaultName;
-
-      self.playAction(self.action);
-
-    }, ( xhr ) => {
-      // progress callback can be added here if needed
-    }, ( error ) => {
-      console.error('GLTF load error for', `${filename}.glb`, error);
-    });
-  }
-
-  playAction(name){
-    if(this.currentAction){
-      this.currentAction.stop();
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Lecture 4.4 – Knight</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <style>
+    html, body {
+      margin: 0; padding: 0; height: 100%; background: #000; color: #fff;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
     }
-    const clip = this.animations[name];
-    if(clip){
-      this.currentAction = this.mixer.clipAction(clip);
-      this.currentAction.play();
+    #btns {
+      position: absolute; right: 10px; top: 10px; z-index: 10;
+      display: flex; gap: 8px; flex-wrap: wrap;
     }
-  }
+    button, .linkbtn {
+      padding: 6px 10px; border: 1px solid #ffffff44; background: #111; color: #fff;
+      border-radius: 6px; cursor: pointer; text-decoration: none; display: inline-block;
+    }
+    button:hover, .linkbtn:hover { background: #1b1b1b; }
+    #hint {
+      position: absolute; left: 50%; transform: translateX(-50%);
+      bottom: 14px; z-index: 10; color: #fff; font-size: 14px;
+      padding: 6px 10px; background: rgba(0,0,0,0.5); border-radius: 8px;
+      display: none; /* app.js toggles this */
+    }
+  </style>
+</head>
+<body>
+  <div id="btns">
+    <button id="btn1">staan</button>
+    <button id="btn2">dansen</button>
+    <button id="btn3">doodgaan</button>
+    <button id="btn4">lopen</button>
 
-  addButtonEvents(){
-    const self = this;
-    const btns = document.querySelectorAll('#btns button');
+    <!-- NEW: One-click Android AR (Scene Viewer) -->
+    <a
+      class="linkbtn"
+      id="btnSceneViewer"
+      href="https://arvr.google.com/scene-viewer/1.0?file=https%3A%2F%2Ftimkeijzers.github.io%2FLearn-WebXR%2Fcomplete%2Flecture4_4%2Fknight.glb&mode=ar_preferred"
+      rel="ar noopener"
+      target="_blank"
+      >Bekijk in AR (Android)</a>
+    <!-- app.js will also add an "Enter AR" button for WebXR when supported -->
+  </div>
 
-    btns.forEach( (btn) => {
-      btn.addEventListener('click', function onClick(){
-        const label = this.innerHTML.trim();
-        // If an animation exists with the label directly, use it; otherwise map via nameMap; otherwise fall back to first available
-        const mapped = (self.animations && self.animations[label])
-          ? label
-          : (self.nameMap && self.nameMap[label] && self.animations[self.nameMap[label]]
-              ? self.nameMap[label]
-              : (self.animations ? Object.keys(self.animations)[0] : undefined));
-        if (mapped) self.action = mapped;
-      });
+  <div id="hint">Beweeg je telefoon om een vlak te vinden. Tik om te plaatsen.</div>
+
+  <script type="module">
+    import { App } from './app.js';
+    document.addEventListener('DOMContentLoaded', () => {
+      const app = new App();
+      window.app = app;
     });
-  }
-
-  onWindowResize(){
-    this.camera.aspect = window.innerWidth / window.innerHeight;
-    this.camera.updateProjectionMatrix();
-
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-  }
-
-  animate(){
-    requestAnimationFrame(this.animate.bind(this));
-
-    this.render();
-  }
-
-  render(){
-    const dt = this.clock.getDelta();
-
-    if (this.mixer) this.mixer.update( dt );
-
-    this.renderer.render(this.scene, this.camera);
-  }
-
-}
-
-export { App };
+  </script>
+</body>
+</html>
