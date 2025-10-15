@@ -2,22 +2,26 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Lecture 4.4 – Knight (Web + WebXR)</title>
+  <title>Lecture 4.4 – Knight (WebXR)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <style>
-    html, body { margin:0; padding:0; height:100%; background:#000; color:#fff; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      background: #000; color: #fff; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
     #btns {
-      position:absolute; right:10px; top:10px; z-index:10;
-      display:flex; gap:8px; flex-wrap:wrap;
+      position: absolute; right: 10px; top: 10px; z-index: 10;
+      display: flex; gap: 8px; flex-wrap: wrap;
     }
-    button, .linkbtn {
-      padding:6px 10px; border:1px solid #ffffff44; background:#111; color:#fff; border-radius:6px; cursor:pointer; text-decoration:none;
+    button {
+      padding: 6px 10px; border: 1px solid #ffffff44; background: #111; color: #fff;
+      border-radius: 6px; cursor: pointer;
     }
-    button:hover, .linkbtn:hover { background:#1b1b1b; }
+    button:hover { background: #1b1b1b; }
     #hint {
-      position:absolute; left:50%; transform:translateX(-50%);
-      bottom:14px; z-index:10; color:#fff; font-size:14px;
-      padding:6px 10px; background:rgba(0,0,0,0.5); border-radius:8px; display:none;
+      position: absolute; left: 50%; transform: translateX(-50%);
+      bottom: 14px; z-index: 10; color: #fff; font-size: 14px;
+      padding: 6px 10px; background: rgba(0,0,0,0.5); border-radius: 8px; display: none;
     }
   </style>
 </head>
@@ -27,10 +31,7 @@
     <button id="btn2">dansen</button>
     <button id="btn3">doodgaan</button>
     <button id="btn4">lopen</button>
-    <!-- Laat deze knop gerust staan voor snelle Android AR; werkt naast WebXR -->
-    <a class="linkbtn" id="btnSceneViewer"
-       href="https://arvr.google.com/scene-viewer/1.0?file=https%3A%2F%2Ftimkeijzers.github.io%2FLearn-WebXR%2Fcomplete%2Flecture4_4%2Fknight.glb&mode=ar_preferred"
-       rel="ar noopener" target="_blank">Bekijk in AR (Android)</a>
+    <!-- Enter AR button gets injected/enabled by app.js -->
   </div>
 
   <div id="hint">Beweeg je telefoon om een vlak te vinden. Tik om te plaatsen.</div>
