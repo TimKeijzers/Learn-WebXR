@@ -192,6 +192,7 @@ class App {
   }
 
   onSessionStart() {
+    this._startingAR = false;
     if (this.hintEl) this.hintEl.style.display = 'block';
 
     // Gebruik de camerafeed: geen geshaderde achtergrond tekenen
@@ -219,6 +220,7 @@ class App {
       this.model.visible = true;
       this.model.position.set(0, 0, 0);
     }
+    this._startingAR = false;
   }
 
   onSelect() {
@@ -276,3 +278,4 @@ class App {
 
 new App();
 export { App };
+
