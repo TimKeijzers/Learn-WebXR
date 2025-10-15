@@ -11,7 +11,6 @@ class App {
     // Config
     this.SCALE = 0.5;
     this.Y_OFFSET = 0;      // AR-plaatsing: geen extra lift
-    this.VIEWER_Y = 0.25;   // Viewer-positie omhoog zodat voeten zichtbaar zijn
 
     // State
     this.clock = new THREE.Clock();
@@ -27,6 +26,7 @@ class App {
     // Camera/scene
     this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 1000);
     this.camera.position.set(0, 1.6, 3);
+    this.camera.lookAt(0, 0, 0);
 
     this.scene = new THREE.Scene();
     this.sceneBGColor = 0x202020;                      // non-AR achtergrond
@@ -94,15 +94,13 @@ class App {
     }
   }
 
-  applyViewerLift(margin = 0.35) {
+  centerModelToOrigin() {
     if (!this.model) return;
-    // Zorg dat world matrices up-to-date zijn voor correcte bounding box
     this.model.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(this.model);
-    if (!isFinite(box.min.y) || !isFinite(box.max.y)) return;
-    const height = box.max.y - box.min.y;
-    const lift = -box.min.y + margin * height;
-    this.model.position.set(0, lift, 0);
+    const center = box.getCenter(new THREE.Vector3());
+    // Verplaats het model zodat het bbox-centrum op (0,0,0) valt
+    this.model.position.sub(center);
   }
 
   loadGLTF(filename) {
@@ -122,19 +120,13 @@ class App {
         this.model.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
         this.scene.add(this.model);
 
-     // ... na this.model = gltf.scene; en this.scene.add(this.model);
-this.mixer = new THREE.AnimationMixer(this.model);
+        this.mixer = new THREE.AnimationMixer(this.model);
 
-// Schaal
-this.model.scale.setScalar(this.SCALE);
-this.model.visible = true;
-
-// Auto-lift in de viewer (rekening houdend met pose/animatie)
-this.applyViewerLift(0.35);
-// Nogmaals na 1 frame en na een korte delay zodat skelet/anim eerste update gehad heeft
-requestAnimationFrame(() => this.applyViewerLift(0.35));
-setTimeout(() => this.applyViewerLift(0.35), 120);
-        
+        // Simpel: model altijd op (0,0,0) en centreren op oorsprong
+        this.model.scale.setScalar(this.SCALE);
+        this.model.visible = true;
+        this.model.position.set(0, 0, 0);
+        this.centerModelToOrigin();
 
         const defaultLabel = 'staan';
         const defaultName =
@@ -328,10 +320,11 @@ setTimeout(() => this.applyViewerLift(0.35), 120);
     // Herstel non-AR achtergrond
     this.scene.background = new THREE.Color(this.sceneBGColor);
 
-    // Toon model weer in viewer
+    // Toon model weer in viewer: zet terug op (0,0,0) en centreer
     if (this.model) {
       this.model.visible = true;
-      this.applyViewerLift(0.35);
+      this.model.position.set(0, 0, 0);
+      this.centerModelToOrigin();
     }
 
     // flags + knop herstellen
