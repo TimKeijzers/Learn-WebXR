@@ -8,8 +8,9 @@ class App {
     document.body.appendChild(container);
 
     // Config
-    this.SCALE = 0.5;     // jouw gewenste schaal
-    this.Y_OFFSET = 0.05; // til het model iets omhoog na plaatsing (Y is omhoog in three.js)
+   this.SCALE = 0.5;       // had je al
+this.Y_OFFSET = 0.05;   // AR-plaatsing iets boven het vlak
+this.VIEWER_Y_OFFSET = 0.15; // ← nieuw: iets omhoog in de gewone viewer
 
     // State
     this.clock = new THREE.Clock();
@@ -111,7 +112,8 @@ class App {
 
         // Zichtbaar in non-AR viewer; schaal en basispositie
         this.model.scale.setScalar(this.SCALE);
-        this.model.visible = true;
+     this.model.visible = true;
+this.model.position.set(0, this.VIEWER_Y_OFFSET, 0);  // ← i.p.v. y=0
         this.model.position.set(0, 5, 1);
 
         const defaultLabel = 'staan';
@@ -169,60 +171,131 @@ class App {
     }
   }
 
-  startAR() {
-    if (!('xr' in navigator)) {
-      alert('WebXR niet beschikbaar in deze browser.');
-      return;
-    }
+startAR() {
+  if (!('xr' in navigator)) {
+    console.warn('WebXR niet beschikbaar in deze browser.');
+    return;
+  }
+  if (this._startingAR) return;
+  this._startingAR = true;
+
+  // 👉 Knop direct laten zien dat hij bezig is
+  const btn = document.getElementById('btnAR');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Start AR…';
+  }
+
+  const tryStart = (useDomOverlay) => {
     const sessionInit = {
       requiredFeatures: ['hit-test'],
-      optionalFeatures: ['dom-overlay'],
-      domOverlay: { root: document.body } // HTML overlay blijft zichtbaar + klikbaar
+      optionalFeatures: useDomOverlay ? ['dom-overlay'] : [],
+      ...(useDomOverlay ? { domOverlay: { root: document.body } } : {})
     };
-    navigator.xr.requestSession('immersive-ar', sessionInit)
+
+    return navigator.xr.requestSession('immersive-ar', sessionInit)
       .then((session) => {
         this.renderer.xr.setReferenceSpaceType('local');
         this.renderer.xr.setSession(session);
-
         this.hitTestSource = null;
         this.hitTestSourceRequested = false;
-      })
-      .catch((e) => {
-        console.error('AR session request failed:', e);
-        alert('AR kon niet starten. Controleer camera-toestemming en Play Services for AR.');
+        const btn = document.getElementById('btnAR');
+        if (btn) { btn.disabled = true; btn.textContent = 'AR actief'; }
       });
-  }
+  };
 
-  onSessionStart() {
-    if (this.hintEl) this.hintEl.style.display = 'block';
-
-    // Gebruik de camerafeed: geen geshaderde achtergrond tekenen
-    this._prevBackground = this.scene.background;
-    this.scene.background = null;
-
-    this.reticle.visible = false;
-    this.modelPlaced = false;
-
-    // Verberg model tot plaatsing
-    if (this.model) this.model.visible = false;
-  }
-
-  onSessionEnd() {
-    if (this.hintEl) this.hintEl.style.display = 'none';
-    this.reticle.visible = false;
-    this.hitTestSourceRequested = false;
-    this.hitTestSource = null;
-
-    // Herstel non-AR achtergrond
-    this.scene.background = new THREE.Color(this.sceneBGColor);
-
-    // Toon model weer in viewer
-    if (this.model) {
-      this.model.visible = true;
-      this.model.position.set(0, 0, 0);
+  // Eerst mét DOM overlay; bij NotSupported -> retry zonder
+  tryStart(true).catch((e) => {
+    if (e && (e.name === 'NotSupportedError' || e.message?.includes('dom-overlay'))) {
+      console.warn('DOM overlay niet ondersteund, probeer zonder…');
+      return tryStart(false);
     }
+    console.error('AR start faalde:', e);
+    throw e;
+  }).catch((e) => {
+    console.error('AR kon niet starten (fallback ook mislukt):', e);
+  }).finally(() => {
+    const sess = this.renderer.xr.getSession?.();
+    if (!sess) this._startingAR = false;
+  });
+}
+
+  // Eerst mét DOM overlay; bij NotSupported -> retry zonder
+  tryStart(true).catch((e) => {
+    if (e && (e.name === 'NotSupportedError' || e.message?.includes('dom-overlay'))) {
+      console.warn('DOM overlay niet ondersteund, probeer zonder…');
+      return tryStart(false);
+    }
+    // andere fouten loggen
+    console.error('AR start faalde:', e);
+    throw e;
+  }).catch((e) => {
+    // tweede poging faalt ook
+    console.error('AR kon niet starten (fallback ook mislukt):', e);
+  }).finally(() => {
+    // we laten _startingAR pas los als sessionstart komt (zie onSessionStart)
+    // maar als het mislukte zonder session, maak los:
+    const sess = this.renderer.xr.getSession?.();
+    if (!sess) this._startingAR = false;
+  });
+}
+
+onSessionStart() {
+  this._startingAR = false;
+  if (this.hintEl) this.hintEl.style.display = 'block';
+
+  // camera-feed tonen in AR
+  this._prevBackground = this.scene.background;
+  this.scene.background = null;
+
+  this.reticle.visible = false;
+  this.modelPlaced = false;
+  if (this.model) this.model.visible = false;
+
+  // Enter AR-knop status (optioneel)
+  const enterBtn = document.getElementById('btnAR');
+  if (enterBtn) { enterBtn.disabled = true; enterBtn.textContent = 'AR actief'; }
+
+  // 👉 EXIT-AR KNOP MAKEN
+  const btns = document.getElementById('btns');
+  if (btns && !document.getElementById('btnExitAR')) {
+    const exitBtn = document.createElement('button');
+    exitBtn.id = 'btnExitAR';
+    exitBtn.textContent = 'Exit AR';
+    exitBtn.style.marginLeft = '6px';
+    exitBtn.addEventListener('click', () => {
+      const s = this.renderer.xr.getSession?.();
+      if (s) s.end();
+    });
+    btns.appendChild(exitBtn);
+  }
+}
+
+onSessionEnd() {
+  if (this.hintEl) this.hintEl.style.display = 'none';
+  this.reticle.visible = false;
+  this.hitTestSourceRequested = false;
+  this.hitTestSource = null;
+
+  // non-AR achtergrond terug
+  this.scene.background = new THREE.Color(this.sceneBGColor);
+
+  // Model terug in viewer-positie
+  if (this.model) {
+    this.model.visible = true;
+    this.model.position.set(0, this.VIEWER_Y_OFFSET, 0); // ← hier ook de viewer-offset
   }
 
+  // Enter AR-knop herstellen (optioneel)
+  const enterBtn = document.getElementById('btnAR');
+  if (enterBtn) { enterBtn.disabled = false; enterBtn.textContent = 'Enter AR'; }
+
+  // 👉 EXIT-AR KNOP WEGHALEN
+  const exitBtn = document.getElementById('btnExitAR');
+  if (exitBtn && exitBtn.parentNode) {
+    exitBtn.parentNode.removeChild(exitBtn);
+  }
+}
   onSelect() {
     if (this.reticle.visible && this.model) {
       // Plaats op reticle + til een beetje op (Y is omhoog)
