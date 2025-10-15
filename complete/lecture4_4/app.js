@@ -21,6 +21,8 @@ class App {
     this.mixer = null;
     this.model = null;
     this.modelPlaced = false;
+    this._startingAR = false;  // voorkomt dubbele starts / InvalidStateError
+    this.xrSession   = null;   // referentie naar de actieve XR-sessie
 
     // Camera/scene
     this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 1000);
@@ -92,6 +94,17 @@ class App {
     }
   }
 
+  applyViewerLift(margin = 0.35) {
+    if (!this.model) return;
+    // Zorg dat world matrices up-to-date zijn voor correcte bounding box
+    this.model.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(this.model);
+    if (!isFinite(box.min.y) || !isFinite(box.max.y)) return;
+    const height = box.max.y - box.min.y;
+    const lift = -box.min.y + margin * height;
+    this.model.position.set(0, lift, 0);
+  }
+
   loadGLTF(filename) {
     const loader = new GLTFLoader();
     const dracoLoader = new DRACOLoader();
@@ -116,13 +129,11 @@ this.mixer = new THREE.AnimationMixer(this.model);
 this.model.scale.setScalar(this.SCALE);
 this.model.visible = true;
 
-// ---- Auto-lift in de viewer: zet voeten op (net boven) y=0 ----
-const box = new THREE.Box3().setFromObject(this.model);
-const height = box.max.y - box.min.y;
-const lift = -box.min.y + 0.35 * height; // 5% marge boven de onderkant
-this.model.position.set(0, lift, 0);
-// ---------------------------------------------------------------
-
+// Auto-lift in de viewer (rekening houdend met pose/animatie)
+this.applyViewerLift(0.35);
+// Nogmaals na 1 frame en na een korte delay zodat skelet/anim eerste update gehad heeft
+requestAnimationFrame(() => this.applyViewerLift(0.35));
+setTimeout(() => this.applyViewerLift(0.35), 120);
         
 
         const defaultLabel = 'staan';
@@ -163,11 +174,16 @@ this.model.position.set(0, lift, 0);
     // Altijd renderen; enable/disable op basis van support
     const btn = document.createElement('button');
     btn.id = 'btnAR';
+    btn.type = 'button'; // voorkom onbedoelde form submit
     btn.textContent = 'Enter AR';
     btn.style.marginLeft = '6px';
     btn.disabled = !('xr' in navigator);
     btn.title = btn.disabled ? 'WebXR niet beschikbaar in deze browser' : '';
-    btn.addEventListener('click', () => this.startAR());
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.startAR();
+    });
     btns.appendChild(btn);
 
     if ('xr' in navigator) {
@@ -185,55 +201,109 @@ this.model.position.set(0, lift, 0);
       console.warn('getUserMedia niet beschikbaar');
       return false;
     }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+
+    const tryOnce = async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } }
+      });
       stream.getTracks().forEach(t => t.stop());
+    };
+
+    try {
+      await tryOnce();
       return true;
     } catch (e) {
-      console.warn('Camera permission failed:', e && (e.name || e.message) || e);
+      if (e?.name === 'NotAllowedError' && /dismiss/i.test(e?.message || '')) {
+        await new Promise(r => setTimeout(r, 120));
+        try { await tryOnce(); return true; } catch { return false; }
+      }
+      console.warn('Camera permission failed:', e?.name, e?.message);
       return false;
     }
-
   }
- async startAR() {
-  if (!('xr' in navigator)) {
-    alert('WebXR niet beschikbaar in deze browser.');
-    return;
-  }
-
-  try {
-    const allowed = await this.ensureCameraPermission();
-    if (!allowed) {
-      alert('Camera-toestemming geweigerd. Sta camera toe in je browserinstellingen en probeer opnieuw.');
+  async startAR() {
+    if (!('xr' in navigator)) {
+      alert('WebXR niet beschikbaar in deze browser.');
       return;
     }
 
-    await new Promise(r => setTimeout(r, 50)); // kleine pauze
+    // re-entrancy guard
+    if (this._startingAR) return;
+    this._startingAR = true;
 
-    const supported = await navigator.xr.isSessionSupported('immersive-ar');
-    if (!supported) {
-      alert('WebXR AR wordt niet ondersteund op dit toestel.');
-      return;
+    const arBtn = document.getElementById('btnAR');
+    if (arBtn) arBtn.disabled = true;
+
+    try {
+      // 1) Sluit eventueel hangende sessie eerst af
+      const current = this.renderer.xr.getSession?.() || this.xrSession;
+      if (current) {
+        try { await current.end(); } catch (_) {}
+        this.xrSession = null;
+      }
+
+      // 2) Camera-permissie preflight
+      const allowed = await this.ensureCameraPermission();
+      if (!allowed) {
+        alert('Camera-toestemming geweigerd. Sta camera toe in je browserinstellingen en probeer opnieuw.');
+        return;
+      }
+
+      // 3) Kleine pauze kan helpen na permissie
+      await new Promise(r => setTimeout(r, 100));
+
+      // 4) Check AR support
+      const supported = await navigator.xr.isSessionSupported('immersive-ar');
+      if (!supported) {
+        alert('WebXR AR wordt niet ondersteund op dit toestel.');
+        return;
+      }
+
+      // 5) Start XR-sessie
+      const sessionInit = {
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['dom-overlay'],
+        domOverlay: { root: document.body }
+      };
+
+      const session = await navigator.xr.requestSession('immersive-ar', sessionInit);
+      this.xrSession = session;
+
+      session.addEventListener('end', () => {
+        this.xrSession = null;
+        this._startingAR = false;
+        const btn = document.getElementById('btnAR');
+        if (btn) btn.disabled = false;
+      });
+
+      this.renderer.xr.setReferenceSpaceType('local');
+      await this.renderer.xr.setSession(session);
+
+      // Reset hit-test state
+      this.hitTestSource = null;
+      this.hitTestSourceRequested = false;
+
+    } catch (e) {
+      console.error('AR session request failed:', e?.name, e?.message, e);
+
+      if (e?.name === 'SecurityError') {
+        alert(
+          'AR kon niet starten (SecurityError). Waarschijnlijk draait dit in een iframe zonder permissies of niet via HTTPS.\n' +
+          '→ Zorg voor HTTPS, en als dit in een iframe staat: allow="camera; microphone; xr-spatial-tracking; fullscreen".'
+        );
+      } else if (e?.name === 'InvalidStateError') {
+        alert('AR kon niet starten (InvalidStateError). Er was nog een sessie bezig. Probeer opnieuw.');
+      } else {
+        alert(`AR kon niet starten (${e?.name || 'Onbekende fout'}).`);
+      }
+    } finally {
+      // re-enable knop als we niet presenteren
+      if (!this.renderer.xr.isPresenting) {
+        this._startingAR = false;
+        if (arBtn) arBtn.disabled = false;
+      }
     }
-
-    const sessionInit = {
-      requiredFeatures: ['hit-test'],
-      optionalFeatures: ['dom-overlay'],
-      domOverlay: { root: document.body }
-    };
-    const session = await navigator.xr.requestSession('immersive-ar', sessionInit);
-
-    this.renderer.xr.setReferenceSpaceType('local');
-    this.renderer.xr.setSession(session);
-
-    this.hitTestSource = null;
-    this.hitTestSourceRequested = false;
-
-  } catch (e) {
-    console.error('AR session request failed:', e?.name, e?.message, e);
-    alert(`AR kon niet starten (${e?.name || 'Onbekende fout'}). Controleer camera-toestemming en Play Services for AR.`);
   }
-}
 
   onSessionStart() {
     if (this.hintEl) this.hintEl.style.display = 'block';
@@ -259,13 +329,16 @@ this.model.position.set(0, lift, 0);
     this.scene.background = new THREE.Color(this.sceneBGColor);
 
     // Toon model weer in viewer
-if (this.model) {
-    this.model.visible = true;
-    const box = new THREE.Box3().setFromObject(this.model);
-    const height = box.max.y - box.min.y;
-    const lift = -box.min.y + 0.35 * height;
-    this.model.position.set(0, lift, 0);
-  }
+    if (this.model) {
+      this.model.visible = true;
+      this.applyViewerLift(0.35);
+    }
+
+    // flags + knop herstellen
+    this.xrSession = null;
+    this._startingAR = false;
+    const arBtn2 = document.getElementById('btnAR');
+    if (arBtn2) arBtn2.disabled = false;
   }
 
   onSelect() {
