@@ -78,7 +78,7 @@ class App{
         if (clip!==undefined){
 			const action = this.mixer.clipAction( clip );
             
-            if (name=='Die'){
+            if (name=='doodgaan'){
                 action.loop = THREE.LoopOnce;
                 action.clampWhenFinished = true;
             }
