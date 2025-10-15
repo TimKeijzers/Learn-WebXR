@@ -9,7 +9,7 @@ class App {
 
     // Config
     this.SCALE = 0.5;       // schaal voor zowel viewer als AR
-    this.MODEL_Y = 0.25;    // één vaste Y-hoogte voor viewer en als offset in AR
+    this.MODEL_Y = 0.15;    // één vaste Y-hoogte voor viewer en als offset in AR
 
     // State
     this.clock = new THREE.Clock();
@@ -136,7 +136,13 @@ class App {
         // Zichtbaar in non-AR viewer; schaal en basispositie
         this.model.scale.setScalar(this.SCALE);
         this.model.visible = true;
-        this.model.position.set(0, this.MODEL_Y, 0);
+
+        // Compute bounding box AFTER scaling, so we can align the base to MODEL_Y
+        const box = new THREE.Box3().setFromObject(this.model);
+        this._modelBaseY = box.min.y; // store for AR placement
+        // Lift so the model's base sits at MODEL_Y in the viewer
+        const viewerLift = -this._modelBaseY * this.SCALE + this.MODEL_Y;
+        this.model.position.set(0, viewerLift, 0);
 
         const defaultLabel = 'staan';
         const defaultName =
@@ -173,24 +179,27 @@ class App {
     const btns = document.getElementById('btns');
     if (!btns) return;
 
-    // Altijd renderen; enable/disable op basis van support
+    // Always create the button so it's visible; then enable/disable based on support
     const btn = document.createElement('button');
     btn.id = 'btnAR';
     btn.textContent = 'Enter AR';
     btn.style.marginLeft = '6px';
-    btn.disabled = !('xr' in navigator);
-    btn.title = btn.disabled ? 'WebXR niet beschikbaar in deze browser' : '';
+    btn.disabled = false;
+    btn.title = '';
     btn.addEventListener('click', () => this.startAR());
     btns.appendChild(btn);
 
-    if ('xr' in navigator) {
-      navigator.xr.isSessionSupported('immersive-ar')
-        .then((supported) => {
-          btn.disabled = !supported;
-          btn.title = supported ? '' : 'WebXR AR wordt niet ondersteund op dit toestel';
-        })
-        .catch(() => {/* laat defaults */});
+    if (!('xr' in navigator)) {
+      btn.disabled = true;
+      btn.title = 'WebXR niet beschikbaar in deze browser';
+      return;
     }
+    navigator.xr.isSessionSupported('immersive-ar')
+      .then((supported) => {
+        btn.disabled = !supported;
+        btn.title = supported ? '' : 'WebXR AR wordt niet ondersteund op dit toestel';
+      })
+      .catch(() => { /* leave defaults */ });
   }
 
   startAR() {
@@ -287,7 +296,8 @@ onSessionStart() {
     // Model terug in viewer-positie
     if (this.model) {
       this.model.visible = true;
-      this.model.position.set(0, this.MODEL_Y, 0);
+      const viewerLift = -this._modelBaseY * this.SCALE + this.MODEL_Y;
+      this.model.position.set(0, viewerLift, 0);
     }
 
     // Enter AR-knop herstellen (optioneel)
@@ -304,8 +314,8 @@ onSessionStart() {
     if (this.reticle.visible && this.model) {
       // Plaats op reticle + til een beetje op (Y is omhoog)
       const p = new THREE.Vector3().setFromMatrixPosition(this.reticle.matrix);
-      p.y += this.MODEL_Y;
-      this.model.position.copy(p);
+      const lift = -this._modelBaseY * this.SCALE + this.MODEL_Y; // align base to plane + offset
+      this.model.position.set(p.x, p.y + lift, p.z);
       this.model.visible = true;
       this.modelPlaced = true;
     }
