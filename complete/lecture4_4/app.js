@@ -112,7 +112,7 @@ class App {
         // Zichtbaar in non-AR viewer; schaal en basispositie
         this.model.scale.setScalar(this.SCALE);
         this.model.visible = true;
-        this.model.position.set(0, 0, 0);
+        this.model.position.set(0, 0, 1);
 
         const defaultLabel = 'staan';
         const defaultName =
