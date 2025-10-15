@@ -214,7 +214,7 @@ class App {
         // Show model back in viewer if session failed
         if (this.model) {
           this.model.visible = true;
-          this.model.position.set(0, 0, 0);
+          this.model.position.set(0, 10, 0);
         }
       });
   }
@@ -260,7 +260,7 @@ class App {
     // Show model again in the viewer 
     if (this.model) {
       this.model.visible = true;
-      this.model.position.set(0, 0, 0);
+      this.model.position.set(0, 10, 0);
     }
 
     // Remove Exit AR button
