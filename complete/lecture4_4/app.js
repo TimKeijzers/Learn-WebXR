@@ -1,14 +1,12 @@
 import * as THREE from '../../libs/three124/three.module.js';
 import { GLTFLoader } from '../../libs/three124/jsm/GLTFLoader.js';
 import { DRACOLoader } from '../../libs/three124/jsm/DRACOLoader.js';
+// Optioneel: HDR omgeving uitschakelen om grijs-scherm issues te vermijden tijdens debug
 
 class App {
   constructor() {
     const container = document.createElement('div');
     document.body.appendChild(container);
-
-    // Config
-    this.SCALE = 0.5;       // schaal voor zowel viewer als AR
 
     // State
     this.clock = new THREE.Clock();
@@ -24,8 +22,7 @@ class App {
     this.camera.position.set(0, 1.6, 3);
 
     this.scene = new THREE.Scene();
-    this.sceneBGColor = 0x202020;                      // non-AR achtergrond
-    this.scene.background = new THREE.Color(this.sceneBGColor);
+    this.scene.background = new THREE.Color(0x202020);
 
     const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
     hemi.position.set(0, 20, 0);
@@ -39,12 +36,12 @@ class App {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.outputEncoding = THREE.sRGBEncoding;
-    this.renderer.xr.enabled = true; // WebXR enabled
-    // Helpt om touch-gestures niet te interfereren
+    this.renderer.xr.enabled = true;
+    // Belangrijk voor touch-handling in AR
     this.renderer.domElement.style.touchAction = 'none';
     container.appendChild(this.renderer.domElement);
 
-    // Reticle (hit-test target in AR)
+    // Reticle (voor AR)
     this.reticle = new THREE.Mesh(
       new THREE.RingGeometry(0.14, 0.18, 32).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial({ color: 0xffffff })
@@ -53,7 +50,7 @@ class App {
     this.reticle.visible = false;
     this.scene.add(this.reticle);
 
-    // XR controller: tap = select
+    // XR controller: tik = select
     this.controller = this.renderer.xr.getController(0);
     this.controller.addEventListener('select', () => this.onSelect());
     this.scene.add(this.controller);
@@ -71,32 +68,6 @@ class App {
     // Load model & start loop
     this.loadGLTF('knight');
     this.renderer.setAnimationLoop((t, frame) => this.render(t, frame));
-
-    // (Debug MODEL_Y nudge removed)
-
-    // --- Drag-to-rotate (both viewer and AR) ---
-    this._dragging = false;
-    this._lastX = 0;
-    const canvas = this.renderer.domElement;
-    canvas.addEventListener('pointerdown', (e) => {
-      // Ignore drags when user taps on UI buttons
-      const path = e.composedPath?.() || [];
-      if (path.some(el => el instanceof HTMLElement && el.id === 'btns')) return;
-      this._dragging = true; this._lastX = e.clientX;
-      canvas.setPointerCapture(e.pointerId);
-    });
-    canvas.addEventListener('pointermove', (e) => {
-      if (!this._dragging || !this.model) return;
-      const dx = e.clientX - this._lastX;
-      this._lastX = e.clientX;
-      // rotate around Y
-      this.model.rotation.y += dx * 0.005;
-    });
-    canvas.addEventListener('pointerup', (e) => {
-      this._dragging = false;
-      try { canvas.releasePointerCapture(e.pointerId); } catch(_) {}
-    });
-    canvas.addEventListener('pointercancel', () => { this._dragging = false; });
   }
 
   setupButtons() {
@@ -118,29 +89,34 @@ class App {
   loadGLTF(filename) {
     const loader = new GLTFLoader();
     const dracoLoader = new DRACOLoader();
-    dracoLoader.setDecoderPath('../../libs/three124/jsm/draco/'); // jouw repo
+    dracoLoader.setDecoderPath('../../libs/three124/jsm/draco/');
     loader.setDRACOLoader(dracoLoader);
 
     loader.load(
       `${filename}.glb`,
       (gltf) => {
+        // Animaties indexeren
         gltf.animations.forEach((anim) => { this.animations[anim.name] = anim; });
         console.log('GLB animations found:', Object.keys(this.animations));
 
+        // Model
         this.model = gltf.scene;
-        // Voorkom dat meshes wegclippen
+        // Zorg dat niets per ongeluk uit culling valt
         this.model.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
         this.scene.add(this.model);
 
+        // Mixer
         this.mixer = new THREE.AnimationMixer(this.model);
 
-        // Zichtbaar in non-AR viewer; schaal en basispositie
-        this.model.scale.setScalar(this.SCALE);
-        this.model.visible = true;
+        // SCHAAL: maak ‘m zichtbaar in viewer; pas desnoods aan
+        const SCALE = 0.5; // was 0.01: vaak te klein → niets te zien
+        this.model.scale.setScalar(SCALE);
 
-        // Simple viewer placement: center at origin
+        // Zet model in non-AR viewer op (0,0,0) zichtbaar
+        this.model.visible = true;
         this.model.position.set(0, 0, 0);
 
+        // Default animatie
         const defaultLabel = 'staan';
         const defaultName =
           this.animations[defaultLabel] ? defaultLabel :
@@ -153,7 +129,6 @@ class App {
       (err) => console.error('GLTF load error for', `${filename}.glb`, err)
     );
   }
-
 
   playAction(name) {
     const clip =
@@ -175,108 +150,70 @@ class App {
 
   makeARButton() {
     const btns = document.getElementById('btns');
-    if (!btns) return;
-
-    // Always create the button so it's visible; then enable/disable based on support
-    const btn = document.createElement('button');
-    btn.id = 'btnAR';
-    btn.textContent = 'Enter AR';
-    btn.style.marginLeft = '6px';
-    btn.disabled = false;
-    btn.title = '';
-    btn.addEventListener('click', () => this.startAR());
-    btns.appendChild(btn);
-
-    if (!('xr' in navigator)) {
-      btn.disabled = true;
-      btn.title = 'WebXR niet beschikbaar in deze browser';
-      return;
-    }
-    navigator.xr.isSessionSupported('immersive-ar')
-      .then((supported) => {
-        btn.disabled = !supported;
-        btn.title = supported ? '' : 'WebXR AR wordt niet ondersteund op dit toestel';
-      })
-      .catch(() => { /* leave defaults */ });
+    if (!btns || !navigator.xr) return;
+    navigator.xr.isSessionSupported('immersive-ar').then((ok) => {
+      if (!ok) return;
+      const btn = document.createElement('button');
+      btn.id = 'btnAR';
+      btn.textContent = 'Enter AR';
+      btn.style.marginLeft = '6px';
+      btn.addEventListener('click', () => this.startAR());
+      btns.appendChild(btn);
+    });
   }
 
   startAR() {
-    if (!('xr' in navigator)) {
-      console.warn('WebXR niet beschikbaar in deze browser.');
-      return;
-    }
-    if (this._startingAR) return;
-    this._startingAR = true;
+    // Tip: als camera-permissie eerder is geweigerd: site-instellingen → Camera toestaan voor timkeijzers.github.io
+    const init = { requiredFeatures: ['hit-test'] };
+    navigator.xr.requestSession('immersive-ar', init).then((session) => {
+      this.renderer.xr.setReferenceSpaceType('local');
+      this.renderer.xr.setSession(session);
 
-    const sessionInit = { requiredFeatures: ['hit-test'] };
-    navigator.xr.requestSession('immersive-ar', sessionInit)
-      .then((session) => {
-        this.renderer.xr.setReferenceSpaceType('local');
-        this.renderer.xr.setSession(session);
-        this.hitTestSource = null;
-        this.hitTestSourceRequested = false;
-      })
-      .catch((e) => {
-        console.error('AR kon niet starten:', e);
-        this._startingAR = false;
-      });
-  }
+      // Laat taps niet “vastlopen” op UI tijdens AR
+      const btns = document.getElementById('btns');
+      if (btns) btns.style.pointerEvents = 'none';
 
-
-onSessionStart() {
-  this._startingAR = false;
-  if (this.hintEl) this.hintEl.style.display = 'block';
-
-  // camera-feed tonen in AR
-  this._prevBackground = this.scene.background;
-  this.scene.background = null;
-
-  this.reticle.visible = false;
-  this.modelPlaced = false;
-  if (this.model) this.model.visible = false;
-
-  // 👉 EXIT-AR KNOP MAKEN
-  const btns = document.getElementById('btns');
-  if (btns && !document.getElementById('btnExitAR')) {
-    const exitBtn = document.createElement('button');
-    exitBtn.id = 'btnExitAR';
-    exitBtn.textContent = 'Exit AR';
-    exitBtn.style.marginLeft = '6px';
-    exitBtn.addEventListener('click', () => {
-      const s = this.renderer.xr.getSession?.();
-      if (s) s.end();
+      this.hitTestSource = null;
+      this.hitTestSourceRequested = false;
+    }).catch((e) => {
+      console.error('AR session request failed:', e);
+      alert('AR kon niet starten. Controleer camera-toestemming en ARCore/Play Services for AR.');
     });
-    btns.appendChild(exitBtn);
   }
-}
+
+  onSessionStart() {
+    console.log('[XR] sessionstart');
+    if (this.hintEl) this.hintEl.style.display = 'block';
+    this.reticle.visible = false;
+    this.modelPlaced = false;
+
+    // Verberg model bij AR start tot we hem plaatsen
+    if (this.model) this.model.visible = false;
+  }
 
   onSessionEnd() {
+    console.log('[XR] sessionend');
     if (this.hintEl) this.hintEl.style.display = 'none';
     this.reticle.visible = false;
     this.hitTestSourceRequested = false;
     this.hitTestSource = null;
 
-    // non-AR achtergrond terug
-    this.scene.background = new THREE.Color(this.sceneBGColor);
+    // UI weer klikbaar
+    const btns = document.getElementById('btns');
+    if (btns) btns.style.pointerEvents = 'auto';
 
-    // Model terug in viewer-positie
+    // Toon model weer in viewer
     if (this.model) {
       this.model.visible = true;
       this.model.position.set(0, 0, 0);
     }
-
-    // 👉 EXIT-AR KNOP WEGHALEN
-    const exitBtn = document.getElementById('btnExitAR');
-    if (exitBtn && exitBtn.parentNode) {
-      exitBtn.parentNode.removeChild(exitBtn);
-    }
   }
+
   onSelect() {
+    console.log('[XR] select');
     if (this.reticle.visible && this.model) {
-      // Plaats op reticle (Y is omhoog)
-      const p = new THREE.Vector3().setFromMatrixPosition(this.reticle.matrix);
-      this.model.position.set(p.x, p.y, p.z);
       this.model.visible = true;
+      this.model.position.setFromMatrixPosition(this.reticle.matrix);
       this.modelPlaced = true;
     }
   }
@@ -291,6 +228,7 @@ onSessionStart() {
     const dt = this.clock.getDelta();
     if (this.mixer) this.mixer.update(dt);
 
+    // Hit-test (AR)
     if (frame) {
       const session = this.renderer.xr.getSession();
       const refSpace = this.renderer.xr.getReferenceSpace();
