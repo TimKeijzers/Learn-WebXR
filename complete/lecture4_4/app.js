@@ -170,29 +170,60 @@ class App {
     }
   }
 
-  startAR() {
-    if (!('xr' in navigator)) {
-      alert('WebXR niet beschikbaar in deze browser.');
+  async ensureCameraPermission() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      console.warn('getUserMedia niet beschikbaar');
+      return false;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      stream.getTracks().forEach(t => t.stop());
+      return true;
+    } catch (e) {
+      console.warn('Camera permission failed:', e && (e.name || e.message) || e);
+      return false;
+    }
+
+  }
+ async startAR() {
+  if (!('xr' in navigator)) {
+    alert('WebXR niet beschikbaar in deze browser.');
+    return;
+  }
+
+  try {
+    const allowed = await this.ensureCameraPermission();
+    if (!allowed) {
+      alert('Camera-toestemming geweigerd. Sta camera toe in je browserinstellingen en probeer opnieuw.');
       return;
     }
+
+    await new Promise(r => setTimeout(r, 50)); // kleine pauze
+
+    const supported = await navigator.xr.isSessionSupported('immersive-ar');
+    if (!supported) {
+      alert('WebXR AR wordt niet ondersteund op dit toestel.');
+      return;
+    }
+
     const sessionInit = {
       requiredFeatures: ['hit-test'],
       optionalFeatures: ['dom-overlay'],
-      domOverlay: { root: document.body } // HTML overlay blijft zichtbaar + klikbaar
+      domOverlay: { root: document.body }
     };
-    navigator.xr.requestSession('immersive-ar', sessionInit)
-      .then((session) => {
-        this.renderer.xr.setReferenceSpaceType('local');
-        this.renderer.xr.setSession(session);
+    const session = await navigator.xr.requestSession('immersive-ar', sessionInit);
 
-        this.hitTestSource = null;
-        this.hitTestSourceRequested = false;
-      })
-      .catch((e) => {
-        console.error('AR session request failed:', e);
-        alert('AR kon niet starten. Controleer camera-toestemming en Play Services for AR.');
-      });
+    this.renderer.xr.setReferenceSpaceType('local');
+    this.renderer.xr.setSession(session);
+
+    this.hitTestSource = null;
+    this.hitTestSourceRequested = false;
+
+  } catch (e) {
+    console.error('AR session request failed:', e?.name, e?.message, e);
+    alert(`AR kon niet starten (${e?.name || 'Onbekende fout'}). Controleer camera-toestemming en Play Services for AR.`);
   }
+}
 
   onSessionStart() {
     if (this.hintEl) this.hintEl.style.display = 'block';
