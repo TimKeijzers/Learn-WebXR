@@ -109,7 +109,7 @@ class App {
         this.mixer = new THREE.AnimationMixer(this.model);
 
         // SCHAAL: maak ‘m zichtbaar in viewer; pas desnoods aan
-        const SCALE = 0.2; // was 0.01: vaak te klein → niets te zien
+        const SCALE = 0.5; // was 0.01: vaak te klein → niets te zien
         this.model.scale.setScalar(SCALE);
 
         // Zet model in non-AR viewer op (0,0,0) zichtbaar
