@@ -1,7 +1,6 @@
 import * as THREE from '../../libs/three124/three.module.js';
 import { GLTFLoader } from '../../libs/three124/jsm/GLTFLoader.js';
 import { DRACOLoader } from '../../libs/three124/jsm/DRACOLoader.js';
-// Optioneel: HDR omgeving uitschakelen om grijs-scherm issues te vermijden tijdens debug
 
 class App {
   constructor() {
@@ -17,7 +16,7 @@ class App {
     this.model = null;
     this.modelPlaced = false;
 
-    // Camera/scene
+    // Camera/Scene
     this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 1000);
     this.camera.position.set(0, 1.6, 3);
 
@@ -36,12 +35,12 @@ class App {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.outputEncoding = THREE.sRGBEncoding;
-    this.renderer.xr.enabled = true;
-    // Belangrijk voor touch-handling in AR
+    this.renderer.xr.enabled = true; // WebXR enabled
+    // Help touch in AR (prevents default scrolling/gestures)
     this.renderer.domElement.style.touchAction = 'none';
     container.appendChild(this.renderer.domElement);
 
-    // Reticle (voor AR)
+    // Reticle (hit-test target)
     this.reticle = new THREE.Mesh(
       new THREE.RingGeometry(0.14, 0.18, 32).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial({ color: 0xffffff })
@@ -50,7 +49,7 @@ class App {
     this.reticle.visible = false;
     this.scene.add(this.reticle);
 
-    // XR controller: tik = select
+    // XR controller: tap = select
     this.controller = this.renderer.xr.getController(0);
     this.controller.addEventListener('select', () => this.onSelect());
     this.scene.add(this.controller);
@@ -89,34 +88,28 @@ class App {
   loadGLTF(filename) {
     const loader = new GLTFLoader();
     const dracoLoader = new DRACOLoader();
-    dracoLoader.setDecoderPath('../../libs/three124/jsm/draco/');
+    dracoLoader.setDecoderPath('../../libs/three124/jsm/draco/'); // matches your repo
     loader.setDRACOLoader(dracoLoader);
 
     loader.load(
       `${filename}.glb`,
       (gltf) => {
-        // Animaties indexeren
         gltf.animations.forEach((anim) => { this.animations[anim.name] = anim; });
         console.log('GLB animations found:', Object.keys(this.animations));
 
-        // Model
         this.model = gltf.scene;
-        // Zorg dat niets per ongeluk uit culling valt
+        // avoid culling surprises
         this.model.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
         this.scene.add(this.model);
 
-        // Mixer
         this.mixer = new THREE.AnimationMixer(this.model);
 
-        // SCHAAL: maak ‘m zichtbaar in viewer; pas desnoods aan
-        const SCALE = 0.5; // was 0.01: vaak te klein → niets te zien
+        // Make it visible in non-AR viewer; adjust scale as needed
+        const SCALE = 0.5;
         this.model.scale.setScalar(SCALE);
-
-        // Zet model in non-AR viewer op (0,0,0) zichtbaar
         this.model.visible = true;
         this.model.position.set(0, 0, 0);
 
-        // Default animatie
         const defaultLabel = 'staan';
         const defaultName =
           this.animations[defaultLabel] ? defaultLabel :
@@ -150,59 +143,72 @@ class App {
 
   makeARButton() {
     const btns = document.getElementById('btns');
-    if (!btns || !navigator.xr) return;
-    navigator.xr.isSessionSupported('immersive-ar').then((ok) => {
-      if (!ok) return;
-      const btn = document.createElement('button');
-      btn.id = 'btnAR';
-      btn.textContent = 'Enter AR';
-      btn.style.marginLeft = '6px';
-      btn.addEventListener('click', () => this.startAR());
-      btns.appendChild(btn);
-    });
+    if (!btns) return;
+
+    // Always add a button; then enable/disable based on support.
+    const btn = document.createElement('button');
+    btn.id = 'btnAR';
+    btn.textContent = 'Enter AR';
+    btn.style.marginLeft = '6px';
+    btn.disabled = !('xr' in navigator);
+    btn.title = btn.disabled ? 'WebXR niet beschikbaar in deze browser' : '';
+    btn.addEventListener('click', () => this.startAR());
+    btns.appendChild(btn);
+
+    if ('xr' in navigator) {
+      navigator.xr.isSessionSupported('immersive-ar')
+        .then((supported) => {
+          btn.disabled = !supported;
+          btn.title = supported ? '' : 'WebXR AR wordt niet ondersteund op dit toestel';
+        })
+        .catch(() => {/* leave defaults */});
+    }
   }
 
   startAR() {
-    // Tip: als camera-permissie eerder is geweigerd: site-instellingen → Camera toestaan voor timkeijzers.github.io
-    const init = { requiredFeatures: ['hit-test'] };
-    navigator.xr.requestSession('immersive-ar', init).then((session) => {
-      this.renderer.xr.setReferenceSpaceType('local');
-      this.renderer.xr.setSession(session);
+    if (!('xr' in navigator)) {
+      alert('WebXR niet beschikbaar in deze browser.');
+      return;
+    }
+    const sessionInit = {
+      requiredFeatures: ['hit-test'],
+      optionalFeatures: ['dom-overlay'],
+      domOverlay: { root: document.body }
+    };
+    navigator.xr.requestSession('immersive-ar', sessionInit)
+      .then((session) => {
+        this.renderer.xr.setReferenceSpaceType('local');
+        this.renderer.xr.setSession(session);
 
-      // Laat taps niet “vastlopen” op UI tijdens AR
-      const btns = document.getElementById('btns');
-      if (btns) btns.style.pointerEvents = 'none';
+        // During AR, let taps go to the XR session (don’t capture them on UI)
+        const btns = document.getElementById('btns');
+        if (btns) btns.style.pointerEvents = 'none';
 
-      this.hitTestSource = null;
-      this.hitTestSourceRequested = false;
-    }).catch((e) => {
-      console.error('AR session request failed:', e);
-      alert('AR kon niet starten. Controleer camera-toestemming en ARCore/Play Services for AR.');
-    });
+        this.hitTestSource = null;
+        this.hitTestSourceRequested = false;
+      })
+      .catch((e) => {
+        console.error('AR session request failed:', e);
+        alert('AR kon niet starten. Check camera-toestemming en ARCore/Play Services for AR.');
+      });
   }
 
   onSessionStart() {
-    console.log('[XR] sessionstart');
     if (this.hintEl) this.hintEl.style.display = 'block';
     this.reticle.visible = false;
     this.modelPlaced = false;
-
-    // Verberg model bij AR start tot we hem plaatsen
-    if (this.model) this.model.visible = false;
+    if (this.model) this.model.visible = false; // hide until placed
   }
 
   onSessionEnd() {
-    console.log('[XR] sessionend');
     if (this.hintEl) this.hintEl.style.display = 'none';
     this.reticle.visible = false;
     this.hitTestSourceRequested = false;
     this.hitTestSource = null;
 
-    // UI weer klikbaar
     const btns = document.getElementById('btns');
     if (btns) btns.style.pointerEvents = 'auto';
 
-    // Toon model weer in viewer
     if (this.model) {
       this.model.visible = true;
       this.model.position.set(0, 0, 0);
@@ -210,7 +216,6 @@ class App {
   }
 
   onSelect() {
-    console.log('[XR] select');
     if (this.reticle.visible && this.model) {
       this.model.visible = true;
       this.model.position.setFromMatrixPosition(this.reticle.matrix);
@@ -228,7 +233,6 @@ class App {
     const dt = this.clock.getDelta();
     if (this.mixer) this.mixer.update(dt);
 
-    // Hit-test (AR)
     if (frame) {
       const session = this.renderer.xr.getSession();
       const refSpace = this.renderer.xr.getReferenceSpace();
