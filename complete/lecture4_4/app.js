@@ -9,7 +9,7 @@ class App {
 
     // Config
     this.SCALE = 0.5;       // schaal voor zowel viewer als AR
-    this.MODEL_Y = 0.25;    // één vaste Y-hoogte voor viewer en als offset in AR
+    this.MODEL_Y = 0.65;    // één vaste Y-hoogte voor viewer en als offset in AR
 
     // State
     this.clock = new THREE.Clock();
@@ -72,6 +72,12 @@ class App {
     // Load model & start loop
     this.loadGLTF('knight');
     this.renderer.setAnimationLoop((t, frame) => this.render(t, frame));
+
+    // --- Debug: live nudge MODEL_Y with +/- and re-apply lift in viewer ---
+    window.addEventListener('keydown', (e) => {
+      if (e.key === '+' || e.key === '=') { this.MODEL_Y += 0.02; this.applyViewerLift(); }
+      if (e.key === '-' || e.key === '_') { this.MODEL_Y -= 0.02; this.applyViewerLift(); }
+    });
 
     // --- Drag-to-rotate (both viewer and AR) ---
     this._dragging = false;
@@ -140,9 +146,7 @@ class App {
         // Compute bounding box AFTER scaling, so we can align the base to MODEL_Y
         const box = new THREE.Box3().setFromObject(this.model);
         this._modelBaseY = box.min.y; // already in scaled space
-        // Lift so the model's base sits at MODEL_Y in the viewer
-        const viewerLift = -this._modelBaseY + this.MODEL_Y;
-        this.model.position.set(0, viewerLift, 0);
+        this.applyViewerLift();
 
         const defaultLabel = 'staan';
         const defaultName =
@@ -155,6 +159,13 @@ class App {
       undefined,
       (err) => console.error('GLTF load error for', `${filename}.glb`, err)
     );
+  }
+
+  applyViewerLift() {
+    if (!this.model || this._modelBaseY == null) return;
+    const lift = -this._modelBaseY + this.MODEL_Y; // Box3 is already scaled
+    this.model.position.set(0, lift, 0);
+    console.log('[lift] MODEL_Y:', this.MODEL_Y, 'baseY:', this._modelBaseY, 'applied lift:', lift);
   }
 
   playAction(name) {
@@ -297,8 +308,7 @@ onSessionStart() {
     // Model terug in viewer-positie
     if (this.model) {
       this.model.visible = true;
-      const viewerLift = -this._modelBaseY + this.MODEL_Y;
-      this.model.position.set(0, viewerLift, 0);
+      this.applyViewerLift();
     }
 
     // Enter AR-knop herstellen (optioneel)
