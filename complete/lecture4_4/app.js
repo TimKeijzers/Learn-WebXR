@@ -9,8 +9,9 @@ class App {
     document.body.appendChild(container);
 
     // Config
-    this.SCALE = 0.5;     // jouw gewenste schaal
-    this.Y_OFFSET = 0.65; // til het model iets omhoog na plaatsing (Y is omhoog in three.js)
+    this.SCALE = 0.5;
+    this.Y_OFFSET = 0;      // AR-plaatsing: geen extra lift
+    this.VIEWER_Y = 0.25;   // Viewer-positie omhoog zodat voeten zichtbaar zijn
 
     // State
     this.clock = new THREE.Clock();
@@ -113,8 +114,8 @@ class App {
         // Zichtbaar in non-AR viewer; schaal en basispositie
         this.model.scale.setScalar(this.SCALE);
         this.model.visible = true;
-        this.model.position.set(0, 0, 0);
-
+        this.model.position.set(0, this.VIEWER_Y, 0);
+        
         const defaultLabel = 'staan';
         const defaultName =
           this.animations[defaultLabel] ? defaultLabel :
@@ -251,7 +252,7 @@ class App {
     // Toon model weer in viewer
     if (this.model) {
       this.model.visible = true;
-      this.model.position.set(0, 0, 0);
+      this.model.position.set(0, this.VIEWER_Y, 0);
     }
   }
 
