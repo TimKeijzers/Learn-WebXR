@@ -185,7 +185,7 @@ class App {
       };
       console.log('[AR] requestSession, domOverlay =', useDomOverlay);
 
-      // Pre-hide model to avoid showing the viewer model in the AR transition
+      // Pre-hide model to avoid showing the viewer model during transition
       if (this.model) this.model.visible = false;
 
       return navigator.xr.requestSession('immersive-ar', sessionInit)
@@ -193,29 +193,28 @@ class App {
           console.log('[AR] session acquired');
           this.renderer.xr.setReferenceSpaceType('local');
           this.renderer.xr.setSession(session);
+          // Switch to camera feed immediately to avoid black/solid frame
+          this._prevBackground = this.scene.background;
+          this.scene.background = null;
           this.hitTestSource = null;
           this.hitTestSourceRequested = false;
         });
     };
 
-    // Try WITH overlay first so UI remains visible; if not supported, retry WITHOUT overlay
-    tryStart(true)
+    // Try WITHOUT overlay first (most reliable for first-start on many devices)
+    tryStart(false)
       .catch((e) => {
-        console.warn('[AR] first start (with overlay) failed:', e?.name || e);
+        console.warn('[AR] first start (no overlay) failed:', e?.name || e);
         if (e && (e.name === 'NotSupportedError' || String(e.message || '').toLowerCase().includes('overlay'))) {
-          console.log('[AR] retry without dom-overlay…');
-          return tryStart(false);
+          console.log('[AR] retry with dom-overlay…');
+          return tryStart(true);
         }
         throw e;
       })
       .catch((e) => {
         console.error('[AR] could not start AR after retry:', e);
         this._startingAR = false;
-        // Show model back in viewer if session failed
-        if (this.model) {
-          this.model.visible = true;
-          this.model.position.set(0, 10, 0);
-        }
+        if (this.model) { this.model.visible = true; this.model.position.set(0, 5, 0); }
       });
   }
 
@@ -223,28 +222,29 @@ class App {
     this._startingAR = false;
     if (this.hintEl) this.hintEl.style.display = 'block';
 
-    // Use camera feed (no solid background)
-    this._prevBackground = this.scene.background;
+    // Ensure we use camera feed during AR
+    this._prevBackground = this._prevBackground ?? this.scene.background;
     this.scene.background = null;
 
     this.reticle.visible = false;
     this.modelPlaced = false;
 
-    // Ensure model is hidden until user places it
+    // Hide model until user places it
     if (this.model) this.model.visible = false;
 
-    // Create Exit AR button when session starts (only once)
-    const btns = document.getElementById('btns');
-    if (btns && !document.getElementById('btnExitAR')) {
-      const exitBtn = document.createElement('button');
-      exitBtn.id = 'btnExitAR';
-      exitBtn.textContent = 'Exit AR';
-      exitBtn.style.marginLeft = '6px';
-      exitBtn.addEventListener('click', () => {
-        const s = this.renderer.xr.getSession?.();
-        if (s) s.end();
-      });
-      btns.appendChild(exitBtn);
+    // Only show Exit AR button if dom-overlay is actually active
+    const sess = this.renderer.xr.getSession?.();
+    const hasOverlay = !!(sess && sess.domOverlayState && sess.domOverlayState.type);
+    if (hasOverlay) {
+      const btns = document.getElementById('btns');
+      if (btns && !document.getElementById('btnExitAR')) {
+        const exitBtn = document.createElement('button');
+        exitBtn.id = 'btnExitAR';
+        exitBtn.textContent = 'Exit AR';
+        exitBtn.style.marginLeft = '6px';
+        exitBtn.addEventListener('click', () => { const s = this.renderer.xr.getSession?.(); if (s) s.end(); });
+        btns.appendChild(exitBtn);
+      }
     }
   }
 
@@ -257,13 +257,13 @@ class App {
     // Restore non-AR background
     this.scene.background = new THREE.Color(this.sceneBGColor);
 
-    // Show model again in the viewer 
+    // Show model again in the viewer at (0, 5, 0)
     if (this.model) {
       this.model.visible = true;
-      this.model.position.set(0, 10, 0);
+      this.model.position.set(0, 5, 0);
     }
 
-    // Remove Exit AR button
+    // Remove Exit AR button if present
     const exitBtn = document.getElementById('btnExitAR');
     if (exitBtn && exitBtn.parentNode) exitBtn.parentNode.removeChild(exitBtn);
 
