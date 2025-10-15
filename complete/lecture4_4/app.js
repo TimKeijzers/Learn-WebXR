@@ -109,13 +109,22 @@ class App {
         this.model.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
         this.scene.add(this.model);
 
-        this.mixer = new THREE.AnimationMixer(this.model);
+     // ... na this.model = gltf.scene; en this.scene.add(this.model);
+this.mixer = new THREE.AnimationMixer(this.model);
 
-        // Zichtbaar in non-AR viewer; schaal en basispositie
-        this.model.scale.setScalar(this.SCALE);
-        this.model.visible = true;
-        this.model.position.set(0, this.VIEWER_Y, 0);
+// Schaal
+this.model.scale.setScalar(this.SCALE);
+this.model.visible = true;
+
+// ---- Auto-lift in de viewer: zet voeten op (net boven) y=0 ----
+const box = new THREE.Box3().setFromObject(this.model);
+const height = box.max.y - box.min.y;
+const lift = -box.min.y + 0.05 * height; // 5% marge boven de onderkant
+this.model.position.set(0, lift, 0);
+// ---------------------------------------------------------------
+
         
+
         const defaultLabel = 'staan';
         const defaultName =
           this.animations[defaultLabel] ? defaultLabel :
@@ -250,10 +259,13 @@ class App {
     this.scene.background = new THREE.Color(this.sceneBGColor);
 
     // Toon model weer in viewer
-    if (this.model) {
-      this.model.visible = true;
-      this.model.position.set(0, this.VIEWER_Y, 0);
-    }
+if (this.model) {
+    this.model.visible = true;
+    const box = new THREE.Box3().setFromObject(this.model);
+    const height = box.max.y - box.min.y;
+    const lift = -box.min.y + 0.05 * height;
+    this.model.position.set(0, lift, 0);
+  }
   }
 
   onSelect() {
