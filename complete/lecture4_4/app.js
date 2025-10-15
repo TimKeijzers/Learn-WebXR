@@ -38,7 +38,7 @@ class App {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.outputEncoding = THREE.sRGBEncoding;
-    this.renderer.xr.enabled = true; // belangrijk voor WebXR
+    this.renderer.xr.enabled = true; // WebXR
     container.appendChild(this.renderer.domElement);
 
     // OrbitControls (non-AR)
@@ -51,15 +51,14 @@ class App {
     document.body.appendChild(this.stats.dom);
     this.loadingBar = new LoadingBar();
 
-    // HDR-omgeving (werkt ook non-AR)
+    // HDR-omgeving
     this.setEnvironment();
 
-    // AR UI (hint + knop)
-    this.hint = this.makeHint('Beweeg je telefoon om een vlak te vinden. Tik om te plaatsen.');
-    this.hint.hidden = true;
-    this.makeARButton(); // maakt en voegt "Enter AR" toe aan #btns indien ondersteund
+    // Hook AR UI (hint + WebXR button)
+    this.hintEl = document.getElementById('hint');
+    this.makeARButton(); // adds "Enter AR" next to your other buttons when supported
 
-    // Reticle voor hit-test
+    // Reticle (for WebXR hit-test)
     this.reticle = new THREE.Mesh(
       new THREE.RingGeometry(0.14, 0.18, 32).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial({ color: 0xffffff })
@@ -68,20 +67,20 @@ class App {
     this.reticle.visible = false;
     this.scene.add(this.reticle);
 
-    // Controller (tap/select) om te plaatsen
+    // Controller (tap/select) to place
     this.controller = this.renderer.xr.getController(0);
     this.controller.addEventListener('select', () => this.onSelect());
     this.scene.add(this.controller);
 
-    // Event listeners
+    // Events
     this.renderer.xr.addEventListener('sessionstart', () => this.onSessionStart());
     this.renderer.xr.addEventListener('sessionend', () => this.onSessionEnd());
     window.addEventListener('resize', this.resize.bind(this));
 
-    // Init scene (laad model + knoppen)
+    // Load model + buttons
     this.initScene();
 
-    // Render loop
+    // Loop
     this.renderer.setAnimationLoop(this.render.bind(this));
   }
 
@@ -103,14 +102,13 @@ class App {
   }
 
   initScene() {
-    this.loadGLTF('knight');
+    this.loadGLTF('knight'); // expects knight.glb next to this file
   }
 
-  // --- Animatiekeuze setter (gebruikt mapping) ---
+  // Animatiekeuze (NL labels → echte clipnamen)
   set action(name) {
     if (this.actionName === name) return;
 
-    // Ondersteun direct label óf gemapte naam
     const resolved =
       this.animations[name] ||
       (this.nameMap[name] ? this.animations[this.nameMap[name]] : undefined);
@@ -136,7 +134,6 @@ class App {
     const self = this;
     function onClick() {
       const label = this.innerHTML.trim();
-      // probeer label direct, anders mapping, anders fallback 1e clip
       const mapped =
         (self.animations && self.animations[label])
           ? label
@@ -154,36 +151,27 @@ class App {
   loadGLTF(filename) {
     const loader = new GLTFLoader();
     const dracoLoader = new DRACOLoader();
-    // Belangrijk: pad naar jouw DRACO decoders bij three124
-    dracoLoader.setDecoderPath('../../libs/three124/jsm/draco/');
+    dracoLoader.setDecoderPath('../../libs/three124/jsm/draco/'); // matches your repo
     loader.setDRACOLoader(dracoLoader);
 
     loader.load(
       `${filename}.glb`,
       (gltf) => {
-        // Animaties indexeren
         this.animations = {};
-        gltf.animations.forEach((anim) => {
-          this.animations[anim.name] = anim;
-        });
+        gltf.animations.forEach((anim) => { this.animations[anim.name] = anim; });
         console.log('GLB animations found:', gltf.animations.map((a) => a.name));
 
-        // Model referentie
         this.knight = gltf.scene;
-        this.knight.visible = true; // in non-AR tonen
+        this.knight.visible = true; // visible in non-AR
         this.scene.add(this.knight);
 
-        // Mixer
         this.mixer = new THREE.AnimationMixer(this.knight);
 
-        // schaal (pas aan indien nodig)
-        const scale = 0.01;
+        const scale = 0.01; // tweak if needed
         this.knight.scale.set(scale, scale, scale);
 
-        // Buttons activeren
         this.addButtonEvents();
 
-        // Default actie kiezen (robuust)
         const defaultLabel = 'staan';
         const defaultName = this.animations[defaultLabel]
           ? defaultLabel
@@ -192,7 +180,6 @@ class App {
               : Object.keys(this.animations)[0]);
         if (defaultName) this.action = defaultName;
 
-        // Loading klaar
         this.loadingBar.visible = false;
       },
       (xhr) => {
@@ -204,30 +191,10 @@ class App {
     );
   }
 
-  // ====== AR Helpers ======
-  makeHint(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    Object.assign(div.style, {
-      position: 'absolute',
-      left: '50%',
-      transform: 'translateX(-50%)',
-      bottom: '14px',
-      zIndex: '10',
-      color: 'white',
-      fontFamily: 'system-ui, Arial, sans-serif',
-      fontSize: '14px',
-      padding: '6px 10px',
-      background: 'rgba(0,0,0,0.5)',
-      borderRadius: '8px'
-    });
-    document.body.appendChild(div);
-    return div;
-    }
-
+  // ---------- WebXR AR helpers ----------
   makeARButton() {
     const btns = document.getElementById('btns');
-    if (!btns || !navigator.xr) return; // geen XR beschikbaar
+    if (!btns || !navigator.xr) return;
 
     navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
       if (!supported) return;
@@ -242,36 +209,28 @@ class App {
   }
 
   startAR() {
-    // Start een AR-sessie met hit-test
     const sessionInit = { requiredFeatures: ['hit-test'] };
-    navigator.xr
-      .requestSession('immersive-ar', sessionInit)
+    navigator.xr.requestSession('immersive-ar', sessionInit)
       .then((session) => {
         this.renderer.xr.setReferenceSpaceType('local');
         this.renderer.xr.setSession(session);
-
-        // hit-test bron instellen
         this.hitTestSource = null;
         this.hitTestSourceRequested = false;
       })
-      .catch((e) => {
-        console.error('AR session request failed:', e);
-      });
+      .catch((e) => console.error('AR session request failed:', e));
   }
 
   onSessionStart() {
-    this.hint.hidden = false;
+    if (this.hintEl) this.hintEl.style.display = 'block';
     this.reticle.visible = false;
     this.modelPlaced = false;
-    // OrbitControls “uit” gevoel (non-AR) — je kunt ze aan laten, ze doen niets in AR
   }
 
   onSessionEnd() {
-    this.hint.hidden = true;
+    if (this.hintEl) this.hintEl.style.display = 'none';
     this.reticle.visible = false;
     this.hitTestSourceRequested = false;
     this.hitTestSource = null;
-    // Model zichtbaar laten in non-AR preview op (0,0,0):
     if (this.knight) {
       this.knight.visible = true;
       this.knight.position.set(0, 0, 0);
@@ -279,7 +238,6 @@ class App {
   }
 
   onSelect() {
-    // Tik om te plaatsen
     if (this.reticle.visible && this.knight) {
       this.knight.visible = true;
       this.knight.position.setFromMatrixPosition(this.reticle.matrix);
@@ -287,7 +245,7 @@ class App {
     }
   }
 
-  // ====== Render & Resize ======
+  // ---------- Render & Resize ----------
   resize() {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
@@ -299,7 +257,6 @@ class App {
     this.stats.update();
     if (this.mixer) this.mixer.update(dt);
 
-    // AR hit-test update
     if (frame) {
       const session = this.renderer.xr.getSession();
       const refSpace = this.renderer.xr.getReferenceSpace();
