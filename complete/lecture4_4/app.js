@@ -9,7 +9,6 @@ class App {
 
     // Config
     this.SCALE = 0.5;       // schaal voor zowel viewer als AR
-    this.MODEL_Y = 0.65;    // één vaste Y-hoogte voor viewer en als offset in AR
 
     // State
     this.clock = new THREE.Clock();
@@ -73,11 +72,7 @@ class App {
     this.loadGLTF('knight');
     this.renderer.setAnimationLoop((t, frame) => this.render(t, frame));
 
-    // --- Debug: live nudge MODEL_Y with +/- and re-apply lift in viewer ---
-    window.addEventListener('keydown', (e) => {
-      if (e.key === '+' || e.key === '=') { this.MODEL_Y += 0.02; this.applyViewerLift(); }
-      if (e.key === '-' || e.key === '_') { this.MODEL_Y -= 0.02; this.applyViewerLift(); }
-    });
+    // (Debug MODEL_Y nudge removed)
 
     // --- Drag-to-rotate (both viewer and AR) ---
     this._dragging = false;
@@ -143,10 +138,8 @@ class App {
         this.model.scale.setScalar(this.SCALE);
         this.model.visible = true;
 
-        // Compute bounding box AFTER scaling, so we can align the base to MODEL_Y
-        const box = new THREE.Box3().setFromObject(this.model);
-        this._modelBaseY = box.min.y; // already in scaled space
-        this.applyViewerLift();
+        // Simple viewer placement: center at origin
+        this.model.position.set(0, 0, 0);
 
         const defaultLabel = 'staan';
         const defaultName =
@@ -161,12 +154,6 @@ class App {
     );
   }
 
-  applyViewerLift() {
-    if (!this.model || this._modelBaseY == null) return;
-    const lift = -this._modelBaseY + this.MODEL_Y; // Box3 is already scaled
-    this.model.position.set(0, lift, 0);
-    console.log('[lift] MODEL_Y:', this.MODEL_Y, 'baseY:', this._modelBaseY, 'applied lift:', lift);
-  }
 
   playAction(name) {
     const clip =
@@ -221,45 +208,16 @@ class App {
     if (this._startingAR) return;
     this._startingAR = true;
 
-    const btn = document.getElementById('btnAR');
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = 'Start AR…';
-    }
-
-    const tryStart = (useDomOverlay) => {
-      const sessionInit = {
-        requiredFeatures: ['hit-test'],
-        optionalFeatures: useDomOverlay ? ['dom-overlay'] : [],
-        ...(useDomOverlay ? { domOverlay: { root: document.body } } : {})
-      };
-
-      return navigator.xr.requestSession('immersive-ar', sessionInit)
-        .then((session) => {
-          this.renderer.xr.setReferenceSpaceType('local');
-          this.renderer.xr.setSession(session);
-          this.hitTestSource = null;
-          this.hitTestSourceRequested = false;
-          const b = document.getElementById('btnAR');
-          if (b) { b.disabled = true; b.textContent = 'AR actief'; }
-        });
-    };
-
-    // Try WITHOUT overlay first (more reliable on some devices). If that fails, retry WITH overlay.
-    tryStart(false)
-      .catch((e) => {
-        if (e && (e.name === 'NotSupportedError' || e.message?.toLowerCase().includes('overlay'))) {
-          console.warn('AR zonder overlay faalde of overlay vereist — probeer met DOM overlay…');
-          return tryStart(true);
-        }
-        console.error('AR start faalde:', e);
-        throw e;
+    const sessionInit = { requiredFeatures: ['hit-test'] };
+    navigator.xr.requestSession('immersive-ar', sessionInit)
+      .then((session) => {
+        this.renderer.xr.setReferenceSpaceType('local');
+        this.renderer.xr.setSession(session);
+        this.hitTestSource = null;
+        this.hitTestSourceRequested = false;
       })
       .catch((e) => {
-        console.error('AR kon niet starten (fallback ook mislukt):', e);
-        // Reset UI so the user can try again
-        const b = document.getElementById('btnAR');
-        if (b) { b.disabled = false; b.textContent = 'Enter AR'; }
+        console.error('AR kon niet starten:', e);
         this._startingAR = false;
       });
   }
@@ -276,10 +234,6 @@ onSessionStart() {
   this.reticle.visible = false;
   this.modelPlaced = false;
   if (this.model) this.model.visible = false;
-
-  // Enter AR-knop status (optioneel)
-  const enterBtn = document.getElementById('btnAR');
-  if (enterBtn) { enterBtn.disabled = true; enterBtn.textContent = 'AR actief'; }
 
   // 👉 EXIT-AR KNOP MAKEN
   const btns = document.getElementById('btns');
@@ -308,12 +262,8 @@ onSessionStart() {
     // Model terug in viewer-positie
     if (this.model) {
       this.model.visible = true;
-      this.applyViewerLift();
+      this.model.position.set(0, 0, 0);
     }
-
-    // Enter AR-knop herstellen (optioneel)
-    const enterBtn = document.getElementById('btnAR');
-    if (enterBtn) { enterBtn.disabled = false; enterBtn.textContent = 'Enter AR'; }
 
     // 👉 EXIT-AR KNOP WEGHALEN
     const exitBtn = document.getElementById('btnExitAR');
@@ -323,10 +273,9 @@ onSessionStart() {
   }
   onSelect() {
     if (this.reticle.visible && this.model) {
-      // Plaats op reticle + til een beetje op (Y is omhoog)
+      // Plaats op reticle (Y is omhoog)
       const p = new THREE.Vector3().setFromMatrixPosition(this.reticle.matrix);
-      const lift = -this._modelBaseY + this.MODEL_Y; // box is already scaled
-      this.model.position.set(p.x, p.y + lift, p.z);
+      this.model.position.set(p.x, p.y, p.z);
       this.model.visible = true;
       this.modelPlaced = true;
     }
