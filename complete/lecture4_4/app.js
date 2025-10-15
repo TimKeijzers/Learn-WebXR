@@ -2,6 +2,7 @@ import * as THREE from '../../libs/three124/three.module.js';
 import { GLTFLoader } from '../../libs/three124/jsm/GLTFLoader.js';
 import { DRACOLoader } from '../../libs/three124/jsm/DRACOLoader.js';
 
+
 class App {
   constructor() {
     const container = document.createElement('div');
