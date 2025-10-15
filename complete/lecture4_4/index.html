@@ -1,45 +1,144 @@
-<!DOCTYPE html>
-<html lang="en">
-	<head>
-		<title>Lecture 4.4</title>
-		<meta charset="utf-8">
-		<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-        <!--favicon -->
-		<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-        <link rel="apple-touch-icon" sizes="180x180" href="../../css/favicon/apple-touch-icon.png">
-        <link rel="icon" type="image/png" sizes="32x32" href="../../css/favicon/favicon-32x32.png">
-        <link rel="icon" type="image/png" sizes="16x16" href="../../css/favicon/favicon-16x16.png">
-        <link rel="manifest" href="../../css/favicon/site.webmanifest">
-        <link rel="mask-icon" href="../../css/favicon/safari-pinned-tab.svg" color="#5bbad5">
-        <meta name="msapplication-TileColor" content="#da532c">
-        <meta name="theme-color" content="#ffffff">
-        <!-- end favicon -->
-        <style>
-            body{
-                margin: 0;
-                padding: 0;
-            }
-            #btns{
-                position: absolute;
-                right: 10px;
-                top: 10px;
-            }
-        </style>
-	</head>
-	<body>
-        <div id="btns">
-            <button id="btn1">staan</button>
-            <button id="btn2">dansen</button>
-            <button id="btn3">doodgaan</button>
-            <button id="btn4">lopen</button>
-        </div>
-        <script type="module">
-            import { App } from './app.js';
+import * as THREE from '../../libs/three/build/three.module.js';
+import { GLTFLoader } from '../../libs/three/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from '../../libs/three/jsm/loaders/DRACOLoader.js';
 
-            document.addEventListener("DOMContentLoaded", function(){
-                const app = new App();
-                window.app = app;
-            });
-        </script>
-	</body>
-</html>
+class App {
+
+  constructor() {
+    this.container = document.createElement('div');
+    document.body.appendChild(this.container);
+
+    this.clock = new THREE.Clock();
+
+    this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 2000);
+    this.camera.position.set(0, 1.5, 3);
+
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0xa0a0a0);
+
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444);
+    hemiLight.position.set(0, 20, 0);
+    this.scene.add(hemiLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff);
+    dirLight.position.set(3, 10, 10);
+    this.scene.add(dirLight);
+
+    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.container.appendChild(this.renderer.domElement);
+
+    this.loadGLTF('knight');
+
+    this.addButtonEvents();
+
+    window.addEventListener('resize', this.onWindowResize.bind(this), false);
+
+    this.animate();
+  }
+
+  loadGLTF(filename){
+    const self = this;
+
+    const loader = new GLTFLoader();
+
+    const dracoLoader = new DRACOLoader();
+    dracoLoader.setDecoderPath( '../../libs/three124/jsm/draco/' );
+    loader.setDRACOLoader(dracoLoader);
+
+    loader.load( `${filename}.glb`, ( gltf ) => {
+      self.animations = {};
+
+      // Map Dutch button labels → actual clip names in the GLB
+      self.nameMap = {
+        'staan': 'Idle',
+        'dansen': 'Dance',
+        'doodgaan': 'Die',
+        'lopen': 'Walk'
+      };
+
+      gltf.animations.forEach( (anim)=>{
+        self.animations[anim.name] = anim;
+      });
+
+      console.log('GLB animations found:', gltf.animations.map(a => a.name));
+
+      self.knight = gltf.scene;
+
+      self.scene.add(self.knight);
+
+      self.mixer = new THREE.AnimationMixer(self.knight);
+
+      const scale = 0.01;
+      self.knight.scale.set(scale, scale, scale);
+
+      const defaultLabel = 'staan';
+      const defaultName = self.animations[defaultLabel]
+        ? defaultLabel
+        : (self.nameMap && self.animations[self.nameMap[defaultLabel]]
+            ? self.nameMap[defaultLabel]
+            : Object.keys(self.animations)[0]);
+      self.action = defaultName;
+
+      self.playAction(self.action);
+
+    }, ( xhr ) => {
+      // progress callback can be added here if needed
+    }, ( error ) => {
+      console.error('GLTF load error for', `${filename}.glb`, error);
+    });
+  }
+
+  playAction(name){
+    if(this.currentAction){
+      this.currentAction.stop();
+    }
+    const clip = this.animations[name];
+    if(clip){
+      this.currentAction = this.mixer.clipAction(clip);
+      this.currentAction.play();
+    }
+  }
+
+  addButtonEvents(){
+    const self = this;
+    const btns = document.querySelectorAll('#btns button');
+
+    btns.forEach( (btn) => {
+      btn.addEventListener('click', function onClick(){
+        const label = this.innerHTML.trim();
+        // If an animation exists with the label directly, use it; otherwise map via nameMap; otherwise fall back to first available
+        const mapped = (self.animations && self.animations[label])
+          ? label
+          : (self.nameMap && self.nameMap[label] && self.animations[self.nameMap[label]]
+              ? self.nameMap[label]
+              : (self.animations ? Object.keys(self.animations)[0] : undefined));
+        if (mapped) self.action = mapped;
+      });
+    });
+  }
+
+  onWindowResize(){
+    this.camera.aspect = window.innerWidth / window.innerHeight;
+    this.camera.updateProjectionMatrix();
+
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  animate(){
+    requestAnimationFrame(this.animate.bind(this));
+
+    this.render();
+  }
+
+  render(){
+    const dt = this.clock.getDelta();
+
+    if (this.mixer) this.mixer.update( dt );
+
+    this.renderer.render(this.scene, this.camera);
+  }
+
+}
+
+export { App };
