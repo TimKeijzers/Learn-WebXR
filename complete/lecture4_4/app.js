@@ -10,7 +10,7 @@ class App {
 
     // Config
     this.SCALE = 0.5;     // jouw gewenste schaal
-    this.Y_OFFSET = 0.05; // til het model iets omhoog na plaatsing (Y is omhoog in three.js)
+    this.Y_OFFSET = 0.65; // til het model iets omhoog na plaatsing (Y is omhoog in three.js)
 
     // State
     this.clock = new THREE.Clock();
