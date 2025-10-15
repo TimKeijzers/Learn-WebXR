@@ -9,7 +9,7 @@ class App {
 
     // Config
     this.SCALE = 0.5;       // schaal voor zowel viewer als AR
-    this.MODEL_Y = 1.65;    // één vaste Y-hoogte voor viewer en als offset in AR
+    this.MODEL_Y = 0.65;    // één vaste Y-hoogte voor viewer en als offset in AR
 
     // State
     this.clock = new THREE.Clock();
@@ -139,9 +139,9 @@ class App {
 
         // Compute bounding box AFTER scaling, so we can align the base to MODEL_Y
         const box = new THREE.Box3().setFromObject(this.model);
-        this._modelBaseY = box.min.y; // store for AR placement
+        this._modelBaseY = box.min.y; // already in scaled space
         // Lift so the model's base sits at MODEL_Y in the viewer
-        const viewerLift = -this._modelBaseY * this.SCALE + this.MODEL_Y;
+        const viewerLift = -this._modelBaseY + this.MODEL_Y;
         this.model.position.set(0, viewerLift, 0);
 
         const defaultLabel = 'staan';
@@ -234,21 +234,22 @@ class App {
         });
     };
 
-    tryStart(true)
+    // Try WITHOUT overlay first (more reliable on some devices). If that fails, retry WITH overlay.
+    tryStart(false)
       .catch((e) => {
-        if (e && (e.name === 'NotSupportedError' || e.message?.includes('dom-overlay'))) {
-          console.warn('DOM overlay niet ondersteund, probeer zonder…');
-          return tryStart(false);
+        if (e && (e.name === 'NotSupportedError' || e.message?.toLowerCase().includes('overlay'))) {
+          console.warn('AR zonder overlay faalde of overlay vereist — probeer met DOM overlay…');
+          return tryStart(true);
         }
         console.error('AR start faalde:', e);
         throw e;
       })
       .catch((e) => {
         console.error('AR kon niet starten (fallback ook mislukt):', e);
-      })
-      .finally(() => {
-        const sess = this.renderer.xr.getSession?.();
-        if (!sess) this._startingAR = false;
+        // Reset UI so the user can try again
+        const b = document.getElementById('btnAR');
+        if (b) { b.disabled = false; b.textContent = 'Enter AR'; }
+        this._startingAR = false;
       });
   }
 
@@ -296,7 +297,7 @@ onSessionStart() {
     // Model terug in viewer-positie
     if (this.model) {
       this.model.visible = true;
-      const viewerLift = -this._modelBaseY * this.SCALE + this.MODEL_Y;
+      const viewerLift = -this._modelBaseY + this.MODEL_Y;
       this.model.position.set(0, viewerLift, 0);
     }
 
@@ -314,7 +315,7 @@ onSessionStart() {
     if (this.reticle.visible && this.model) {
       // Plaats op reticle + til een beetje op (Y is omhoog)
       const p = new THREE.Vector3().setFromMatrixPosition(this.reticle.matrix);
-      const lift = -this._modelBaseY * this.SCALE + this.MODEL_Y; // align base to plane + offset
+      const lift = -this._modelBaseY + this.MODEL_Y; // box is already scaled
       this.model.position.set(p.x, p.y + lift, p.z);
       this.model.visible = true;
       this.modelPlaced = true;
