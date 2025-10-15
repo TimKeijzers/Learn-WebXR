@@ -9,7 +9,7 @@ class App {
 
     // Config
     this.SCALE = 0.5;       // schaal voor zowel viewer als AR
-    this.MODEL_Y = 0.15;    // één vaste Y-hoogte voor viewer en als offset in AR
+    this.MODEL_Y = 0.25;    // één vaste Y-hoogte voor viewer en als offset in AR
 
     // State
     this.clock = new THREE.Clock();
