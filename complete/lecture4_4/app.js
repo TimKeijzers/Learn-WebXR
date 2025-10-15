@@ -112,7 +112,7 @@ class App {
         // Zichtbaar in non-AR viewer; schaal en basispositie
         this.model.scale.setScalar(this.SCALE);
         this.model.visible = true;
-        this.model.position.set(0, 0, 0);
+        this.model.position.set(0, 5, 0);
 
         const defaultLabel = 'staan';
         const defaultName =
@@ -171,22 +171,41 @@ class App {
 
   startAR() {
     if (!('xr' in navigator)) {
-      console.warn('WebXR niet beschikbaar in deze browser.');
+      console.warn('[AR] WebXR niet beschikbaar in deze browser.');
       return;
     }
     if (this._startingAR) return;
     this._startingAR = true;
 
-    const sessionInit = { requiredFeatures: ['hit-test'] };
-    navigator.xr.requestSession('immersive-ar', sessionInit)
-      .then((session) => {
-        this.renderer.xr.setReferenceSpaceType('local');
-        this.renderer.xr.setSession(session);
-        this.hitTestSource = null;
-        this.hitTestSourceRequested = false;
+    const tryStart = (useDomOverlay) => {
+      const sessionInit = {
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: useDomOverlay ? ['dom-overlay'] : [],
+        ...(useDomOverlay ? { domOverlay: { root: document.body } } : {})
+      };
+      console.log('[AR] requestSession, domOverlay =', useDomOverlay);
+      return navigator.xr.requestSession('immersive-ar', sessionInit)
+        .then((session) => {
+          console.log('[AR] session acquired');
+          this.renderer.xr.setReferenceSpaceType('local');
+          this.renderer.xr.setSession(session);
+          this.hitTestSource = null;
+          this.hitTestSourceRequested = false;
+        });
+    };
+
+    // Try WITHOUT overlay first (most reliable on some devices). If that fails with NotSupported, retry WITH overlay.
+    tryStart(false)
+      .catch((e) => {
+        console.warn('[AR] first start failed:', e?.name || e);
+        if (e && (e.name === 'NotSupportedError' || String(e.message || '').toLowerCase().includes('overlay'))) {
+          console.log('[AR] retry with dom-overlay…');
+          return tryStart(true);
+        }
+        throw e;
       })
       .catch((e) => {
-        console.warn('AR kon niet starten (probeer opnieuw of update Play Services for AR):', e);
+        console.error('[AR] could not start AR after retry:', e);
         this._startingAR = false;
       });
   }
@@ -218,7 +237,7 @@ class App {
     // Toon model weer in viewer
     if (this.model) {
       this.model.visible = true;
-      this.model.position.set(0, 0, 0);
+      this.model.position.set(0, 5, 0);
     }
     this._startingAR = false;
   }
@@ -248,6 +267,7 @@ class App {
       const refSpace = this.renderer.xr.getReferenceSpace();
 
       if (!this.hitTestSourceRequested) {
+        console.log('[AR] creating hit test source');
         session.requestReferenceSpace('viewer').then((viewerSpace) => {
           session.requestHitTestSource({ space: viewerSpace }).then((source) => {
             this.hitTestSource = source;
@@ -278,4 +298,5 @@ class App {
 
 new App();
 export { App };
+
 
