@@ -8,8 +8,8 @@ class App {
     document.body.appendChild(container);
 
     // Config
-    this.SCALE = 0.5;     // jouw gewenste schaal
-    this.Y_OFFSET = 0.05; // til het model iets omhoog na plaatsing (Y is omhoog in three.js)
+    this.SCALE = 0.5;       // schaal voor zowel viewer als AR
+    this.MODEL_Y = 0.65;    // één vaste Y-hoogte voor viewer en als offset in AR
 
     // State
     this.clock = new THREE.Clock();
@@ -72,6 +72,30 @@ class App {
     // Load model & start loop
     this.loadGLTF('knight');
     this.renderer.setAnimationLoop((t, frame) => this.render(t, frame));
+
+    // --- Drag-to-rotate (both viewer and AR) ---
+    this._dragging = false;
+    this._lastX = 0;
+    const canvas = this.renderer.domElement;
+    canvas.addEventListener('pointerdown', (e) => {
+      // Ignore drags when user taps on UI buttons
+      const path = e.composedPath?.() || [];
+      if (path.some(el => el instanceof HTMLElement && el.id === 'btns')) return;
+      this._dragging = true; this._lastX = e.clientX;
+      canvas.setPointerCapture(e.pointerId);
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!this._dragging || !this.model) return;
+      const dx = e.clientX - this._lastX;
+      this._lastX = e.clientX;
+      // rotate around Y
+      this.model.rotation.y += dx * 0.005;
+    });
+    canvas.addEventListener('pointerup', (e) => {
+      this._dragging = false;
+      try { canvas.releasePointerCapture(e.pointerId); } catch(_) {}
+    });
+    canvas.addEventListener('pointercancel', () => { this._dragging = false; });
   }
 
   setupButtons() {
@@ -112,7 +136,13 @@ class App {
         // Zichtbaar in non-AR viewer; schaal en basispositie
         this.model.scale.setScalar(this.SCALE);
         this.model.visible = true;
-        this.model.position.set(0, 5, 1);
+
+        // Compute bounding box AFTER scaling, so we can align the base to MODEL_Y
+        const box = new THREE.Box3().setFromObject(this.model);
+        this._modelBaseY = box.min.y; // store for AR placement
+        // Lift so the model's base sits at MODEL_Y in the viewer
+        const viewerLift = -this._modelBaseY * this.SCALE + this.MODEL_Y;
+        this.model.position.set(0, viewerLift, 0);
 
         const defaultLabel = 'staan';
         const defaultName =
@@ -149,63 +179,110 @@ class App {
     const btns = document.getElementById('btns');
     if (!btns) return;
 
-    // Altijd renderen; enable/disable op basis van support
+    // Always create the button so it's visible; then enable/disable based on support
     const btn = document.createElement('button');
     btn.id = 'btnAR';
     btn.textContent = 'Enter AR';
     btn.style.marginLeft = '6px';
-    btn.disabled = !('xr' in navigator);
-    btn.title = btn.disabled ? 'WebXR niet beschikbaar in deze browser' : '';
+    btn.disabled = false;
+    btn.title = '';
     btn.addEventListener('click', () => this.startAR());
     btns.appendChild(btn);
 
-    if ('xr' in navigator) {
-      navigator.xr.isSessionSupported('immersive-ar')
-        .then((supported) => {
-          btn.disabled = !supported;
-          btn.title = supported ? '' : 'WebXR AR wordt niet ondersteund op dit toestel';
-        })
-        .catch(() => {/* laat defaults */});
+    if (!('xr' in navigator)) {
+      btn.disabled = true;
+      btn.title = 'WebXR niet beschikbaar in deze browser';
+      return;
     }
+    navigator.xr.isSessionSupported('immersive-ar')
+      .then((supported) => {
+        btn.disabled = !supported;
+        btn.title = supported ? '' : 'WebXR AR wordt niet ondersteund op dit toestel';
+      })
+      .catch(() => { /* leave defaults */ });
   }
 
   startAR() {
     if (!('xr' in navigator)) {
-      alert('WebXR niet beschikbaar in deze browser.');
+      console.warn('WebXR niet beschikbaar in deze browser.');
       return;
     }
-    const sessionInit = {
-      requiredFeatures: ['hit-test'],
-      optionalFeatures: ['dom-overlay'],
-      domOverlay: { root: document.body } // HTML overlay blijft zichtbaar + klikbaar
-    };
-    navigator.xr.requestSession('immersive-ar', sessionInit)
-      .then((session) => {
-        this.renderer.xr.setReferenceSpaceType('local');
-        this.renderer.xr.setSession(session);
+    if (this._startingAR) return;
+    this._startingAR = true;
 
-        this.hitTestSource = null;
-        this.hitTestSourceRequested = false;
+    const btn = document.getElementById('btnAR');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Start AR…';
+    }
+
+    const tryStart = (useDomOverlay) => {
+      const sessionInit = {
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: useDomOverlay ? ['dom-overlay'] : [],
+        ...(useDomOverlay ? { domOverlay: { root: document.body } } : {})
+      };
+
+      return navigator.xr.requestSession('immersive-ar', sessionInit)
+        .then((session) => {
+          this.renderer.xr.setReferenceSpaceType('local');
+          this.renderer.xr.setSession(session);
+          this.hitTestSource = null;
+          this.hitTestSourceRequested = false;
+          const b = document.getElementById('btnAR');
+          if (b) { b.disabled = true; b.textContent = 'AR actief'; }
+        });
+    };
+
+    tryStart(true)
+      .catch((e) => {
+        if (e && (e.name === 'NotSupportedError' || e.message?.includes('dom-overlay'))) {
+          console.warn('DOM overlay niet ondersteund, probeer zonder…');
+          return tryStart(false);
+        }
+        console.error('AR start faalde:', e);
+        throw e;
       })
       .catch((e) => {
-        console.error('AR session request failed:', e);
-        alert('AR kon niet starten. Controleer camera-toestemming en Play Services for AR.');
+        console.error('AR kon niet starten (fallback ook mislukt):', e);
+      })
+      .finally(() => {
+        const sess = this.renderer.xr.getSession?.();
+        if (!sess) this._startingAR = false;
       });
   }
 
-  onSessionStart() {
-    if (this.hintEl) this.hintEl.style.display = 'block';
 
-    // Gebruik de camerafeed: geen geshaderde achtergrond tekenen
-    this._prevBackground = this.scene.background;
-    this.scene.background = null;
+onSessionStart() {
+  this._startingAR = false;
+  if (this.hintEl) this.hintEl.style.display = 'block';
 
-    this.reticle.visible = false;
-    this.modelPlaced = false;
+  // camera-feed tonen in AR
+  this._prevBackground = this.scene.background;
+  this.scene.background = null;
 
-    // Verberg model tot plaatsing
-    if (this.model) this.model.visible = false;
+  this.reticle.visible = false;
+  this.modelPlaced = false;
+  if (this.model) this.model.visible = false;
+
+  // Enter AR-knop status (optioneel)
+  const enterBtn = document.getElementById('btnAR');
+  if (enterBtn) { enterBtn.disabled = true; enterBtn.textContent = 'AR actief'; }
+
+  // 👉 EXIT-AR KNOP MAKEN
+  const btns = document.getElementById('btns');
+  if (btns && !document.getElementById('btnExitAR')) {
+    const exitBtn = document.createElement('button');
+    exitBtn.id = 'btnExitAR';
+    exitBtn.textContent = 'Exit AR';
+    exitBtn.style.marginLeft = '6px';
+    exitBtn.addEventListener('click', () => {
+      const s = this.renderer.xr.getSession?.();
+      if (s) s.end();
+    });
+    btns.appendChild(exitBtn);
   }
+}
 
   onSessionEnd() {
     if (this.hintEl) this.hintEl.style.display = 'none';
@@ -213,22 +290,32 @@ class App {
     this.hitTestSourceRequested = false;
     this.hitTestSource = null;
 
-    // Herstel non-AR achtergrond
+    // non-AR achtergrond terug
     this.scene.background = new THREE.Color(this.sceneBGColor);
 
-    // Toon model weer in viewer
+    // Model terug in viewer-positie
     if (this.model) {
       this.model.visible = true;
-      this.model.position.set(0, 0, 0);
+      const viewerLift = -this._modelBaseY * this.SCALE + this.MODEL_Y;
+      this.model.position.set(0, viewerLift, 0);
+    }
+
+    // Enter AR-knop herstellen (optioneel)
+    const enterBtn = document.getElementById('btnAR');
+    if (enterBtn) { enterBtn.disabled = false; enterBtn.textContent = 'Enter AR'; }
+
+    // 👉 EXIT-AR KNOP WEGHALEN
+    const exitBtn = document.getElementById('btnExitAR');
+    if (exitBtn && exitBtn.parentNode) {
+      exitBtn.parentNode.removeChild(exitBtn);
     }
   }
-
   onSelect() {
     if (this.reticle.visible && this.model) {
       // Plaats op reticle + til een beetje op (Y is omhoog)
       const p = new THREE.Vector3().setFromMatrixPosition(this.reticle.matrix);
-      p.y += this.Y_OFFSET;
-      this.model.position.copy(p);
+      const lift = -this._modelBaseY * this.SCALE + this.MODEL_Y; // align base to plane + offset
+      this.model.position.set(p.x, p.y + lift, p.z);
       this.model.visible = true;
       this.modelPlaced = true;
     }
