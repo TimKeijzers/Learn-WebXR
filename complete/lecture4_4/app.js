@@ -388,5 +388,5 @@ class App {
   }
 }
 
-new App();
+window.app = new App();
 export { App };
