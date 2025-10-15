@@ -7,6 +7,10 @@ class App {
     const container = document.createElement('div');
     document.body.appendChild(container);
 
+    // Config
+    this.SCALE = 0.5;     // jouw gewenste schaal
+    this.Y_OFFSET = 0.05; // til het model iets omhoog na plaatsing (Y is omhoog in three.js)
+
     // State
     this.clock = new THREE.Clock();
     this.animations = {};
@@ -16,12 +20,13 @@ class App {
     this.model = null;
     this.modelPlaced = false;
 
-    // Camera/Scene
+    // Camera/scene
     this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 1000);
     this.camera.position.set(0, 1.6, 3);
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x202020);
+    this.sceneBGColor = 0x202020;                      // non-AR achtergrond
+    this.scene.background = new THREE.Color(this.sceneBGColor);
 
     const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
     hemi.position.set(0, 20, 0);
@@ -36,11 +41,11 @@ class App {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.outputEncoding = THREE.sRGBEncoding;
     this.renderer.xr.enabled = true; // WebXR enabled
-    // Help touch in AR (prevents default scrolling/gestures)
+    // Helpt om touch-gestures niet te interfereren
     this.renderer.domElement.style.touchAction = 'none';
     container.appendChild(this.renderer.domElement);
 
-    // Reticle (hit-test target)
+    // Reticle (hit-test target in AR)
     this.reticle = new THREE.Mesh(
       new THREE.RingGeometry(0.14, 0.18, 32).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial({ color: 0xffffff })
@@ -88,7 +93,7 @@ class App {
   loadGLTF(filename) {
     const loader = new GLTFLoader();
     const dracoLoader = new DRACOLoader();
-    dracoLoader.setDecoderPath('../../libs/three124/jsm/draco/'); // matches your repo
+    dracoLoader.setDecoderPath('../../libs/three124/jsm/draco/'); // jouw repo
     loader.setDRACOLoader(dracoLoader);
 
     loader.load(
@@ -98,15 +103,14 @@ class App {
         console.log('GLB animations found:', Object.keys(this.animations));
 
         this.model = gltf.scene;
-        // avoid culling surprises
+        // Voorkom dat meshes wegclippen
         this.model.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
         this.scene.add(this.model);
 
         this.mixer = new THREE.AnimationMixer(this.model);
 
-        // Make it visible in non-AR viewer; adjust scale as needed
-        const SCALE = 0.5;
-        this.model.scale.setScalar(SCALE);
+        // Zichtbaar in non-AR viewer; schaal en basispositie
+        this.model.scale.setScalar(this.SCALE);
         this.model.visible = true;
         this.model.position.set(0, 0, 0);
 
@@ -145,7 +149,7 @@ class App {
     const btns = document.getElementById('btns');
     if (!btns) return;
 
-    // Always add a button; then enable/disable based on support.
+    // Altijd renderen; enable/disable op basis van support
     const btn = document.createElement('button');
     btn.id = 'btnAR';
     btn.textContent = 'Enter AR';
@@ -161,7 +165,7 @@ class App {
           btn.disabled = !supported;
           btn.title = supported ? '' : 'WebXR AR wordt niet ondersteund op dit toestel';
         })
-        .catch(() => {/* leave defaults */});
+        .catch(() => {/* laat defaults */});
     }
   }
 
@@ -173,31 +177,34 @@ class App {
     const sessionInit = {
       requiredFeatures: ['hit-test'],
       optionalFeatures: ['dom-overlay'],
-      domOverlay: { root: document.body }
+      domOverlay: { root: document.body } // HTML overlay blijft zichtbaar + klikbaar
     };
     navigator.xr.requestSession('immersive-ar', sessionInit)
       .then((session) => {
         this.renderer.xr.setReferenceSpaceType('local');
         this.renderer.xr.setSession(session);
 
-        // During AR, let taps go to the XR session (don’t capture them on UI)
-        const btns = document.getElementById('btns');
-        if (btns) btns.style.pointerEvents = 'none';
-
         this.hitTestSource = null;
         this.hitTestSourceRequested = false;
       })
       .catch((e) => {
         console.error('AR session request failed:', e);
-        alert('AR kon niet starten. Check camera-toestemming en ARCore/Play Services for AR.');
+        alert('AR kon niet starten. Controleer camera-toestemming en Play Services for AR.');
       });
   }
 
   onSessionStart() {
     if (this.hintEl) this.hintEl.style.display = 'block';
+
+    // Gebruik de camerafeed: geen geshaderde achtergrond tekenen
+    this._prevBackground = this.scene.background;
+    this.scene.background = null;
+
     this.reticle.visible = false;
     this.modelPlaced = false;
-    if (this.model) this.model.visible = false; // hide until placed
+
+    // Verberg model tot plaatsing
+    if (this.model) this.model.visible = false;
   }
 
   onSessionEnd() {
@@ -206,9 +213,10 @@ class App {
     this.hitTestSourceRequested = false;
     this.hitTestSource = null;
 
-    const btns = document.getElementById('btns');
-    if (btns) btns.style.pointerEvents = 'auto';
+    // Herstel non-AR achtergrond
+    this.scene.background = new THREE.Color(this.sceneBGColor);
 
+    // Toon model weer in viewer
     if (this.model) {
       this.model.visible = true;
       this.model.position.set(0, 0, 0);
@@ -217,8 +225,11 @@ class App {
 
   onSelect() {
     if (this.reticle.visible && this.model) {
+      // Plaats op reticle + til een beetje op (Y is omhoog)
+      const p = new THREE.Vector3().setFromMatrixPosition(this.reticle.matrix);
+      p.y += this.Y_OFFSET;
+      this.model.position.copy(p);
       this.model.visible = true;
-      this.model.position.setFromMatrixPosition(this.reticle.matrix);
       this.modelPlaced = true;
     }
   }
