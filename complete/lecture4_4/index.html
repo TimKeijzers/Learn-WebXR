@@ -18,12 +18,6 @@
       border-radius: 6px; cursor: pointer; text-decoration: none; display: inline-block;
     }
     button:hover, .linkbtn:hover { background: #1b1b1b; }
-    #hint {
-      position: absolute; left: 50%; transform: translateX(-50%);
-      bottom: 14px; z-index: 10; color: #fff; font-size: 14px;
-      padding: 6px 10px; background: rgba(0,0,0,0.5); border-radius: 8px;
-      display: none; /* app.js toggles this */
-    }
   </style>
 </head>
 <body>
@@ -33,25 +27,17 @@
     <button id="btn3">doodgaan</button>
     <button id="btn4">lopen</button>
 
-    <!-- NEW: One-click Android AR (Scene Viewer) -->
+    <!-- One-click Android AR via Scene Viewer -->
     <a
       class="linkbtn"
       id="btnSceneViewer"
       href="https://arvr.google.com/scene-viewer/1.0?file=https%3A%2F%2Ftimkeijzers.github.io%2FLearn-WebXR%2Fcomplete%2Flecture4_4%2Fknight.glb&mode=ar_preferred"
       rel="ar noopener"
       target="_blank"
-      >Bekijk in AR (Android)</a>
-    <!-- app.js will also add an "Enter AR" button for WebXR when supported -->
+    >Bekijk in AR (Android)</a>
   </div>
 
-  <div id="hint">Beweeg je telefoon om een vlak te vinden. Tik om te plaatsen.</div>
-
-  <script type="module">
-    import { App } from './app.js';
-    document.addEventListener('DOMContentLoaded', () => {
-      const app = new App();
-      window.app = app;
-    });
-  </script>
+  <!-- Load your JS app as a module -->
+  <script type="module" src="./app.js"></script>
 </body>
 </html>
