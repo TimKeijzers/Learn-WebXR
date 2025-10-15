@@ -112,7 +112,7 @@ class App {
         // Zichtbaar in non-AR viewer; schaal en basispositie
         this.model.scale.setScalar(this.SCALE);
         this.model.visible = true;
-        this.model.position.set(0, 5, 0);
+        this.model.position.set(0, 0, 0);
 
         const defaultLabel = 'staan';
         const defaultName =
@@ -171,50 +171,23 @@ class App {
 
   startAR() {
     if (!('xr' in navigator)) {
-      console.warn('[AR] WebXR niet beschikbaar in deze browser.');
+      console.warn('WebXR niet beschikbaar in deze browser.');
       return;
     }
     if (this._startingAR) return;
     this._startingAR = true;
 
-    const tryStart = (useDomOverlay) => {
-      const sessionInit = {
-        requiredFeatures: ['hit-test'],
-        optionalFeatures: useDomOverlay ? ['dom-overlay'] : [],
-        ...(useDomOverlay ? { domOverlay: { root: document.body } } : {})
-      };
-      console.log('[AR] requestSession, domOverlay =', useDomOverlay);
-
-      // Pre-hide model to avoid showing the viewer model during transition
-      if (this.model) this.model.visible = false;
-
-      return navigator.xr.requestSession('immersive-ar', sessionInit)
-        .then((session) => {
-          console.log('[AR] session acquired');
-          this.renderer.xr.setReferenceSpaceType('local');
-          this.renderer.xr.setSession(session);
-          // Switch to camera feed immediately to avoid black/solid frame
-          this._prevBackground = this.scene.background;
-          this.scene.background = null;
-          this.hitTestSource = null;
-          this.hitTestSourceRequested = false;
-        });
-    };
-
-    // Try WITHOUT overlay first (most reliable for first-start on many devices)
-    tryStart(false)
-      .catch((e) => {
-        console.warn('[AR] first start (no overlay) failed:', e?.name || e);
-        if (e && (e.name === 'NotSupportedError' || String(e.message || '').toLowerCase().includes('overlay'))) {
-          console.log('[AR] retry with dom-overlay…');
-          return tryStart(true);
-        }
-        throw e;
+    const sessionInit = { requiredFeatures: ['hit-test'] };
+    navigator.xr.requestSession('immersive-ar', sessionInit)
+      .then((session) => {
+        this.renderer.xr.setReferenceSpaceType('local');
+        this.renderer.xr.setSession(session);
+        this.hitTestSource = null;
+        this.hitTestSourceRequested = false;
       })
       .catch((e) => {
-        console.error('[AR] could not start AR after retry:', e);
+        console.warn('AR kon niet starten (probeer opnieuw of update Play Services for AR):', e);
         this._startingAR = false;
-        if (this.model) { this.model.visible = true; this.model.position.set(0, 5, 0); }
       });
   }
 
@@ -222,30 +195,15 @@ class App {
     this._startingAR = false;
     if (this.hintEl) this.hintEl.style.display = 'block';
 
-    // Ensure we use camera feed during AR
-    this._prevBackground = this._prevBackground ?? this.scene.background;
+    // Gebruik de camerafeed: geen geshaderde achtergrond tekenen
+    this._prevBackground = this.scene.background;
     this.scene.background = null;
 
     this.reticle.visible = false;
     this.modelPlaced = false;
 
-    // Hide model until user places it
+    // Verberg model tot plaatsing
     if (this.model) this.model.visible = false;
-
-    // Only show Exit AR button if dom-overlay is actually active
-    const sess = this.renderer.xr.getSession?.();
-    const hasOverlay = !!(sess && sess.domOverlayState && sess.domOverlayState.type);
-    if (hasOverlay) {
-      const btns = document.getElementById('btns');
-      if (btns && !document.getElementById('btnExitAR')) {
-        const exitBtn = document.createElement('button');
-        exitBtn.id = 'btnExitAR';
-        exitBtn.textContent = 'Exit AR';
-        exitBtn.style.marginLeft = '6px';
-        exitBtn.addEventListener('click', () => { const s = this.renderer.xr.getSession?.(); if (s) s.end(); });
-        btns.appendChild(exitBtn);
-      }
-    }
   }
 
   onSessionEnd() {
@@ -254,19 +212,14 @@ class App {
     this.hitTestSourceRequested = false;
     this.hitTestSource = null;
 
-    // Restore non-AR background
+    // Herstel non-AR achtergrond
     this.scene.background = new THREE.Color(this.sceneBGColor);
 
-    // Show model again in the viewer at (0, 5, 0)
+    // Toon model weer in viewer
     if (this.model) {
       this.model.visible = true;
-      this.model.position.set(0, 5, 0);
+      this.model.position.set(0, 0, 0);
     }
-
-    // Remove Exit AR button if present
-    const exitBtn = document.getElementById('btnExitAR');
-    if (exitBtn && exitBtn.parentNode) exitBtn.parentNode.removeChild(exitBtn);
-
     this._startingAR = false;
   }
 
@@ -295,7 +248,6 @@ class App {
       const refSpace = this.renderer.xr.getReferenceSpace();
 
       if (!this.hitTestSourceRequested) {
-        console.log('[AR] creating hit test source');
         session.requestReferenceSpace('viewer').then((viewerSpace) => {
           session.requestHitTestSource({ space: viewerSpace }).then((source) => {
             this.hitTestSource = source;
