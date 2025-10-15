@@ -10,7 +10,6 @@ class App {
 
     // Config
     this.SCALE = 0.5;     // jouw gewenste schaal
-    this.Y_OFFSET = 0.05; // til het model iets omhoog na plaatsing (Y is omhoog in three.js)
 
     // State
     this.clock = new THREE.Clock();
@@ -172,25 +171,23 @@ class App {
 
   startAR() {
     if (!('xr' in navigator)) {
-      alert('WebXR niet beschikbaar in deze browser.');
+      console.warn('WebXR niet beschikbaar in deze browser.');
       return;
     }
-    const sessionInit = {
-      requiredFeatures: ['hit-test'],
-      optionalFeatures: ['dom-overlay'],
-      domOverlay: { root: document.body } // HTML overlay blijft zichtbaar + klikbaar
-    };
+    if (this._startingAR) return;
+    this._startingAR = true;
+
+    const sessionInit = { requiredFeatures: ['hit-test'] };
     navigator.xr.requestSession('immersive-ar', sessionInit)
       .then((session) => {
         this.renderer.xr.setReferenceSpaceType('local');
         this.renderer.xr.setSession(session);
-
         this.hitTestSource = null;
         this.hitTestSourceRequested = false;
       })
       .catch((e) => {
-        console.error('AR session request failed:', e);
-        alert('AR kon niet starten. Controleer camera-toestemming en Play Services for AR.');
+        console.warn('AR kon niet starten (probeer opnieuw of update Play Services for AR):', e);
+        this._startingAR = false;
       });
   }
 
@@ -226,9 +223,8 @@ class App {
 
   onSelect() {
     if (this.reticle.visible && this.model) {
-      // Plaats op reticle + til een beetje op (Y is omhoog)
+      // Plaats exact op de reticle-positie (simpel)
       const p = new THREE.Vector3().setFromMatrixPosition(this.reticle.matrix);
-      p.y += this.Y_OFFSET;
       this.model.position.copy(p);
       this.model.visible = true;
       this.modelPlaced = true;
